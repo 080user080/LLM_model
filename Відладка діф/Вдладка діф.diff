@@ -1,0 +1,8 @@
+--- a/zeroshot_speaker_models.py
++++ b/zeroshot_speaker_models.py
+@@
+-def _safe_field(s: str) -> str:
+-    dprint("[DEBUG] _legend_plain_to_json: parsed keys=", list(out.keys())[:10])
+-    return (s or "").replace("\t", " ").replace("\n", " ").replace("\r", " ")
++def _safe_field(s: str) -> str:
++    return (s or "").replace("\t", " ").replace("\n", " ").replace("\r", " ")

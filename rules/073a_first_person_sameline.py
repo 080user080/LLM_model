@@ -1,0 +1,144 @@
+﻿# 073a_first_person_sameline.py — «Я кажу: …» → наступна діалогова репліка стає first_person_gid (#GPT)
+# -*- coding: utf-8 -*-
+import re
+
+PHASE, PRIORITY, SCOPE, NAME = 73, 6, "fulltext", "first_person_sameline"  #GPT
+
+NBSP = "\u00A0"
+DASHES = "-\u2012\u2013\u2014\u2015"
+IS_DLG = re.compile(rf"^\s*(?:[{re.escape(DASHES)}]|[«\"„“”'’])")
+TAG_ANY = re.compile(r"^(\s*)#g(\d+|\?)\s*:\s*(.*)$")  #GPT
+TAG_PREFIX = re.compile(r"^\s*#g(\d+|\?)\s*:\s*")      #GPT
+
+# УВАГА: усі групи — НЕзахоплюючі (?:...) щоб не плодити капчури усередині PAT
+FP_NOW = r"(?:кажу|відповідаю|питаю|запитую|кричу|шепочу|бурчу|мовлю|промовляю|пояснюю|додаю|зазначаю|прошу|гукаю|відказую)"
+FP_PM  = r"(?:сказав|відповів|запитав|крикнув|вигукнув|прошепотів|буркнув|мовив|промовив|пояснив|гукнув|відказав)"
+FP_PF  = r"(?:сказала|відповіла|запитала|крикнула|вигукнула|прошепотіла|буркнула|промовила|пояснила|гукнула|відказала)"
+LEADIN = rf"(?:я\s+{FP_NOW}|{FP_NOW}\s+я|{FP_PM}\s+я|{FP_PF}\s+я)\s*:"
+
+# Хвостова атрибуція «… — сказала я …» на тій же лінії (#GPT)
+TAIL_ME = rf"(?:(?:{FP_PM}|{FP_PF})\s+я|я\s+(?:{FP_NOW}))\b"  #GPT
+TAIL_ME_RE = re.compile(TAIL_ME, re.IGNORECASE)               #GPT
+
+# ^ <pre з «…я кажу:»>  #gN:  <body>
+PAT = re.compile(
+    rf"^(?P<pre>\s*.*?(?:{LEADIN})\s*)#g(?P<gid>\d+|\?)\s*:\s*(?P<body>.*)$",
+    re.IGNORECASE  # без DOTALL — працюємо пострічково #GPT
+)
+
+def _narrator_gid(ctx):  #GPT
+    meta = getattr(ctx, "metadata", {}) or {}
+    # 1) пряма підказка
+    fp = (meta.get("hints") or {}).get("first_person_gid")
+    if fp:
+        return fp
+    # 2) fallback: role == narrator з roles_gender
+    rg = meta.get("roles_gender") or {}
+    for gid, rec in rg.items():
+        if (rec or {}).get("role") == "narrator":
+            return gid
+    return None
+
+def _first_gid(ctx):  # залишено для сумісності зі старим кодом #GPT
+    return _narrator_gid(ctx)
+
+def _is_dialog_body(b: str) -> bool:
+    return bool(IS_DLG.match((b or "").replace(NBSP, " ").lstrip()))
+
+def _split_eol(ln: str):
+    # Підтримка всіх типів переносу: CRLF, LF, CR, а також LS/PS/NEL
+    if ln.endswith("\r\n"):
+        return ln[:-2], "\r\n"
+    if ln.endswith("\n"):
+        return ln[:-1], "\n"
+    if ln.endswith("\r"):
+        return ln[:-1], "\r"
+    if ln.endswith("\u2028") or ln.endswith("\u2029") or ln.endswith("\x85"):
+        return ln[:-1], ln[-1]
+    return ln, ""
+
+FPLEAD_LINE = re.compile(rf"^\s*.*?(?:{LEADIN})\s*$", re.IGNORECASE)  # «Я кажу:» як окремий рядок #GPT
+
+def apply(text: str, ctx):
+    fp = _first_gid(ctx)
+    if not fp:
+        return text
+
+    out, retag = [], 0
+    pending = 0                 # скільки рядків уперед чекати репліку після «Я кажу:» #GPT
+    LOOKAHEAD = 3               # допускаємо порожні рядки/пробіли до першої репліки #GPT
+
+    for ln in text.splitlines(keepends=True):
+        core, eol = _split_eol(ln)
+
+        # 0) same-line варіант: «… я кажу: … #g?: …»
+        m = PAT.match(core)
+        if m:
+            gd   = m.groupdict()
+            pre  = gd.get("pre", "")
+            body = gd.get("body", "")
+            if _is_dialog_body(body):
+                out.append(f"{pre}{fp}: {body}{eol}")
+                retag += 1
+                pending = 0
+                continue
+            # якщо тіло не схоже на репліку — впаде до обробки нижче
+
+        # 0.1) Хвіст у цьому ж рядку: «#g?: — …, — сказала я …» → ретег у first_person (#GPT)
+        mt0 = TAG_ANY.match(core)  #GPT
+        if mt0:
+            indent, gid0, body0 = mt0.groups()  #GPT
+            body_clean = (body0 or "").replace(NBSP, " ")  #GPT
+            if gid0 == "?" and _is_dialog_body(body0) and TAIL_ME_RE.search(body_clean):  #GPT
+                out.append(f"{indent}{fp}: {body0}{eol}")  #GPT
+                retag += 1  #GPT
+                pending = 0  #GPT
+                continue  #GPT
+
+        # 1) Якщо є активний префейс «Я кажу:», шукаємо першу діалогову репліку
+        if pending > 0:
+            # a) Тегований рядок
+            mt = TAG_ANY.match(core)
+            if mt:
+                indent, gid, body = mt.groups()
+                if gid == "?" and _is_dialog_body(body):
+                    out.append(f"{indent}{fp}: {body}{eol}")
+                    retag += 1
+                    pending = 0
+                    continue
+                else:
+                    out.append(ln)
+                    pending -= 1
+                    continue
+            # b) Нетегований, але починається з діалогового маркера → створюємо тег
+            if _is_dialog_body(core):
+                indent = core[:len(core) - len(core.lstrip())]
+                body_no_tag = core.strip()
+                out.append(f"{indent}{fp}: {body_no_tag}{eol}")
+                retag += 1
+                pending = 0
+                continue
+            # c) Порожній або будь-який інший рядок — просто пропускаємо, рахуємо лукАед
+            out.append(ln)
+            pending -= 1
+            continue
+
+        # 2) Нова активація: окремий рядок-префейс «Я кажу:»
+        #    Працює і для plain, і для "#g1: Я кажу:" — спершу знімаємо префікс #g
+        preface_core = TAG_PREFIX.sub("", core)
+        if FPLEAD_LINE.match(preface_core.replace(NBSP, " ")):
+            out.append(ln)
+            pending = LOOKAHEAD
+            continue
+
+        # 3) Звичайний рядок без змін
+        out.append(ln)
+
+    try:
+        ctx.logs.append(f"[073a first_person] retagged:{retag}")  #GPT
+    except Exception:
+        pass
+
+    return "".join(out)
+
+apply.phase, apply.priority, apply.scope, apply.name = PHASE, PRIORITY, SCOPE, NAME

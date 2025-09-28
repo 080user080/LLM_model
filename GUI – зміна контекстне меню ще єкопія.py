@@ -1,0 +1,963 @@
+﻿# gui.py
+#GPT: Темна GUI-оболонка для розстановки діалогів. Логіка у logic.py
+#GPT: Зведений лог без фризів. Виправлено: додано _clear_legend/_paste_legend/_load_legend_file.
+
+import os
+import threading
+import queue
+import re
+import tkinter as tk
+from tkinter import ttk, filedialog, messagebox
+import subprocess  # GPT
+import sys         # GPT
+import tempfile    # GPT
+import json        # GPT
+
+# Спроба підключити зовнішню логіку.
+# На початку намагаємося завантажити удосконалену версію `improved_logic`.
+# Якщо вона відсутня або викликає помилку – використовуємо штатний `logic`.
+# Використовуємо абсолютний імпорт, щоб працювало як при запуску всередині пакету,
+# так і при прямому запуску файлу GUI.py. Relative imports (.improved_logic) не
+# працюють, якщо __package__ дорівнює None.
+try:
+    import improved_logic as logic  # type: ignore
+    LOGIC_AVAILABLE = True
+except Exception:
+    try:
+        import logic as logic  # noqa: F401
+        LOGIC_AVAILABLE = True
+    except Exception:
+        logic = None  # type: ignore
+        LOGIC_AVAILABLE = False
+
+# --------------------- Константи оформлення --------------------- #GPT
+BG = "#1e1e1e"
+PANEL = "#252526"
+FG = "#e6e6e6"
+ACCENT = "#3a96dd"
+ENTRY_BG = "#2b2b2b"
+ENTRY_FG = FG
+FONT = ("Segoe UI", 10)
+
+# Файли за замовчуванням (мають узгоджуватися з logic.py)
+DEF_INPUT = "Dialog_test.txt"
+DEF_OUTPUT = "Dialog_dialogues.txt"
+DEF_LEGEND = "Legenda_test.txt"
+
+# --------------------- Головний клас GUI ------------------------ #GPT
+class DialogGUI(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("Розпізнавання діалогів → підготовка до TTS")
+        self.geometry("1200x820")
+        self.configure(bg=BG)
+        self.minsize(960, 700)
+
+        # Черга коротких лог-подій для статусу
+        self.log_q = queue.Queue()
+        self._working = False  # індикатор тривалого завдання
+        self._status_tick = 0
+
+        # Пошук за тегами у вихідному тексті
+        self.search_var = tk.StringVar(value="#g?")
+        self._crit_history = ["#g?"]
+        self._crit_idx = 0
+        self._autosave_after_id = None
+
+        self._build_style()
+        self._build_layout()
+        self._bind_shortcuts()
+
+        # Таймер періодичного зчитування коротких подій
+        self.after(120, self._drain_logs)
+
+        # Завжди підтягуємо дефолтні файли (перемикач видалено)
+        self._load_defaults()
+
+    # ----------------- Стиль ----------------- #GPT
+    def _build_style(self):
+        style = ttk.Style()
+        try:
+            style.theme_use("clam")
+        except Exception:
+            pass
+
+        style.configure("TFrame", background=BG)
+        style.configure("Panel.TFrame", background=PANEL)
+        style.configure("TLabel", background=BG, foreground=FG, font=FONT)
+        style.configure("Small.TLabel", background=BG, foreground="#bbbbbb", font=("Segoe UI", 9))
+        style.configure("TButton", font=FONT, padding=6)
+        style.map("TButton", background=[("active", ACCENT)], foreground=[("active", "#ffffff")])
+        style.configure("TEntry", fieldbackground=ENTRY_BG, foreground=ENTRY_FG)
+        style.configure("TLabelframe", background=BG, foreground=FG, font=("Segoe UI Semibold", 10))
+        style.configure("TLabelframe.Label", background=BG, foreground=FG)
+
+    # ----------------- Розмітка ----------------- #GPT
+    def _build_layout(self):
+        top = ttk.Frame(self, style="Panel.TFrame")
+        top.pack(fill="x", padx=10, pady=10)
+
+        # Вхідний файл
+        ttk.Label(top, text="Вхідний .txt:").grid(row=0, column=0, padx=8, pady=8, sticky="w")
+        self.in_path = tk.StringVar()
+        self.e_in = ttk.Entry(top, textvariable=self.in_path, width=90)
+        self._paint_entry(self.e_in)
+        self.e_in.grid(row=0, column=1, padx=8, pady=8, sticky="we")
+        ttk.Button(top, text="Обрати…", command=self._choose_input).grid(row=0, column=2, padx=8, pady=8)
+
+        # Вихідний файл
+        ttk.Label(top, text="Вивід (.txt):").grid(row=1, column=0, padx=8, pady=8, sticky="w")
+        self.out_path = tk.StringVar()
+        self.e_out = ttk.Entry(top, textvariable=self.out_path, width=90)
+        self._paint_entry(self.e_out)
+        self.e_out.grid(row=1, column=1, padx=8, pady=8, sticky="we")
+        ttk.Button(top, text="Зберегти як…", command=self._choose_output).grid(row=1, column=2, padx=8, pady=8)
+
+        top.columnconfigure(1, weight=1)
+
+        # Середня зона: Зведений лог + Кнопки
+        mid = ttk.Frame(self)
+        mid.pack(fill="x", padx=10, pady=(0, 10))
+
+        log_frame = ttk.Labelframe(mid, text="Зведений лог")
+        log_frame.pack(side="left", fill="both", expand=True, padx=(0, 10))
+        self.txt_log = self._make_text(log_frame, height=10)
+        self.txt_log.pack(fill="both", expand=True, padx=8, pady=8)
+
+        btns = ttk.Frame(mid)
+        btns.pack(side="left", fill="y")
+        self.btn_run = ttk.Button(btns, text="▶ Запустити обробку", command=self._run_processing)
+        self.btn_run.pack(fill="x", pady=(0, 8))
+        self.btn_zeroshot = ttk.Button(btns, text="Обробити #g? (ML_model)", command=self._run_zeroshot)
+        self.btn_zeroshot.pack(fill="x", pady=(0, 12))
+        self.btn_clear_legend = ttk.Button(btns, text="Очистити легенду", command=self._clear_legend)
+        self.btn_clear_legend.pack(fill="x", pady=4)
+        self.btn_paste_legend = ttk.Button(btns, text="Вставити легенду", command=self._paste_legend)
+        self.btn_paste_legend.pack(fill="x", pady=4)
+        self.btn_load_legend = ttk.Button(btns, text="Завантажити легенду з файлу", command=self._load_legend_file)
+        self.btn_load_legend.pack(fill="x", pady=4)
+
+        # Нижня зона: Легенда та Оброблений текст
+        bottom = ttk.Panedwindow(self, orient="horizontal")
+        bottom.pack(fill="both", expand=True, padx=10, pady=(0, 10))
+
+        legend_frame = ttk.Labelframe(bottom, text="Легенда #g1…#g30")
+        out_container = ttk.Labelframe(bottom, text="Оброблений текст")
+        bottom.add(legend_frame, weight=1)
+        bottom.add(out_container, weight=2)
+        self.after(100, lambda: bottom.sashpos(0, 400))
+
+        self.txt_legend = self._make_text(legend_frame, height=18)
+        self.txt_legend.pack(fill="both", expand=True, padx=8, pady=8)
+
+        out_frame = ttk.Frame(out_container, style="TFrame")
+        out_frame.pack(fill="both", expand=True)
+        self.txt_output = self._make_text(out_frame, height=18, undo=False, wrap_mode="word")
+        self.txt_output.pack(fill="both", expand=True, padx=8, pady=(8, 0))
+        self.txt_output.tag_configure("find_match", background="#44475a")
+        self.txt_output.bind("<KeyRelease>", self._on_output_key)
+        controls = ttk.Frame(out_frame, style="Panel.TFrame")
+        controls.pack(fill="x", padx=8, pady=(6, 8))
+        ttk.Label(controls, text="Тег для пошуку:").pack(side="left", padx=(0, 6))
+        self.cmb_tag = ttk.Combobox(controls, textvariable=self.search_var, state="readonly", width=12)
+        self.cmb_tag.pack(side="left")
+        self.cmb_tag.bind("<<ComboboxSelected>>", lambda _e=None: self._find_next_for_tag(self.search_var.get()))
+        ttk.Button(controls, text="Назад", command=lambda: self._find_prev_for_tag(self.search_var.get())).pack(side="left", padx=6)
+        ttk.Button(controls, text="Вперед", command=lambda: self._find_next_for_tag(self.search_var.get())).pack(side="left")
+
+        # Статусбар
+        self.status = ttk.Label(self, text="Готово", style="Small.TLabel", anchor="w")
+        self.status.pack(fill="x", padx=12, pady=(0, 8))
+
+    # ----------------- Віджети-помічники ----------------- #GPT
+    def _make_text(self, parent, height=10, undo=True, wrap_mode="word"):
+        txt = tk.Text(parent, height=height, bg=ENTRY_BG, fg=ENTRY_FG,
+                      insertbackground=FG, undo=undo, maxundo=-1,
+                      wrap=wrap_mode, font=FONT, relief="flat")
+        y = ttk.Scrollbar(parent, orient="vertical", command=txt.yview)
+        txt.configure(yscrollcommand=y.set)
+        y.pack(side="right", fill="y")
+
+        txt.bind("<Control-c>", lambda e: self._ctrl(e, "copy"))
+        txt.bind("<Control-v>", lambda e: self._ctrl(e, "paste"))
+        txt.bind("<Control-x>", lambda e: self._ctrl(e, "cut"))
+        txt.bind("<Control-a>", lambda e: self._ctrl(e, "selall"))
+        # Автокопіювання виділеного тексту
+        txt.bind("<<Selection>>",     lambda e, w=txt: self._auto_copy_sel_text(w), add="+")
+        txt.bind("<ButtonRelease-1>", lambda e, w=txt: self._auto_copy_sel_text(w), add="+")
+        txt.bind("<KeyRelease>",      lambda e, w=txt: self._auto_copy_sel_text(w), add="+")
+
+        self._add_context_menu(txt)
+        return txt
+
+    def _paint_entry(self, entry: ttk.Entry):
+        entry.bind("<Control-a>", lambda e: (entry.select_range(0, "end"), "break"))
+        # Автокопіювання виділеного тексту в Entry/ttk.Entry
+        entry.bind("<<Selection>>",     lambda e, w=entry: self._auto_copy_sel_text(w), add="+")
+        entry.bind("<ButtonRelease-1>", lambda e, w=entry: self._auto_copy_sel_text(w), add="+")
+        entry.bind("<KeyRelease>",      lambda e, w=entry: self._auto_copy_sel_text(w), add="+")
+
+        self._add_context_menu(entry, is_entry=True)
+
+    def _add_context_menu(self, widget, is_entry=False):
+        menu = tk.Menu(widget, tearoff=0, bg=PANEL, fg=FG,
+                       activebackground=ACCENT, activeforeground="white")
+        menu.add_command(label="Копіювати", command=lambda: widget.event_generate("<<Copy>>"))
+        menu.add_command(label="Вставити", command=lambda: widget.event_generate("<<Paste>>"))
+        menu.add_command(label="Вирізати", command=lambda: widget.event_generate("<<Cut>>"))
+        menu.add_separator()
+        if is_entry:
+            menu.add_command(label="Виділити все", command=lambda: widget.select_range(0, "end"))
+        else:
+            menu.add_command(label="Виділити все", command=lambda: widget.tag_add("sel", "1.0", "end-1c"))
+
+        def popup(event):
+            try:
+                menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                menu.grab_release()
+
+        widget.bind("<Button-3>", popup)
+
+    # ----------------- Події та дії ----------------- #GPT
+    def _choose_input(self):
+        path = filedialog.askopenfilename(
+            title="Обрати вхідний TXT",
+            filetypes=[("Текстові файли", "*.txt"), ("Усі файли", "*.*")]
+        )
+        if path:
+            self.in_path.set(path)
+            base = os.path.splitext(os.path.basename(path))[0]
+            if not self.out_path.get() or self.out_path.get() in ("", DEF_OUTPUT):
+                self.out_path.set(f"{base}_dialogues.txt")
+
+    def _choose_output(self):
+        path = filedialog.asksaveasfilename(
+            title="Куди зберегти результат",
+            defaultextension=".txt",
+            initialfile=self.out_path.get() or DEF_OUTPUT,
+            filetypes=[("Текстові файли", ".txt")]
+        )
+        if path:
+            self.out_path.set(path)
+
+    def _run_processing(self):
+        # Автоматично: максимум мінус один процес
+        auto_workers = max(1, (os.cpu_count() or 2) - 1)
+
+        in_path = (self.in_path.get() or "").strip()
+        out_path = (self.out_path.get() or "").strip()
+        legend = self.txt_legend.get("1.0", "end-1c")
+
+        # Підставляємо дефолти, якщо порожньо
+        if not in_path and os.path.exists(DEF_INPUT):
+            in_path = DEF_INPUT
+            self.in_path.set(in_path)
+        if not out_path:
+            out_path = DEF_OUTPUT
+            self.out_path.set(out_path)
+        if not legend and os.path.exists(DEF_LEGEND):
+            try:
+                with open(DEF_LEGEND, "r", encoding="utf-8") as f:
+                    legend = f.read()
+                    self.txt_legend.delete("1.0", "end")
+                    self.txt_legend.insert("1.0", legend)
+            except Exception:
+                pass
+
+        if not in_path or not os.path.isfile(in_path):
+            messagebox.showerror("Помилка", "Оберіть існуючий вхідний .txt файл або покладіть DEF_INPUT поряд.")
+            return
+        if not out_path:
+            messagebox.showerror("Помилка", "Вкажіть ім'я вихідного файлу.")
+            return
+
+        # Короткі події у лог-чергу
+        self._log_q_put("Запуск")
+
+        if not LOGIC_AVAILABLE:
+            self._log_q_put("logic.py відсутній: імітація обробки…")
+            self._start_worker(self._mock_process, args=(in_path, legend, out_path))
+            return
+
+        self._start_worker(self._real_process, args=(in_path, legend, out_path, auto_workers))
+
+    def _real_process(self, in_path, legend, out_path, workers):
+        # Працює у фоні
+        self._log_q_put(f"Працює | процесів: {workers}")
+        try:
+            output_text, logs = logic.process_dialogs(in_path, legend, workers=workers)
+
+            # Запис результату у файл
+            try:
+                with open(out_path, "w", encoding="utf-8") as f:
+                    f.write(output_text or "")
+                self._log_q_put(f"Записано: {out_path}")
+            except Exception as e:
+                self._log_q_put(f"Помилка запису: {e}")
+
+            # Побудувати зведений лог і оновити UI у головному потоці
+            summary = self._build_summary(output_text or "", legend or "", logs)
+            self.after(0, lambda: self._set_log_summary(summary))
+            self.after(0, lambda: self._set_output_text(output_text or ""))
+            self.after(0, lambda: self._set_status("Завершено"))
+            self._log_q_put("Завершено")
+        except Exception as e:
+            self._log_q_put(f"Помилка: {e}")
+            self.after(0, lambda: self._set_status("Помилка"))
+
+    def _mock_process(self, in_path, legend, out_path):
+        # Демо-дані
+        demo = (
+            "#g2: Розповідач каже щось.\n"
+            "#g3: Привіт.\n"
+            "#g?: Нерозпізнано.\n"
+            "#g2: Продовження.\n"
+        )
+        try:
+            with open(out_path, "w", encoding="utf-8") as f:
+                f.write(demo)
+            self._log_q_put(f"Записано: {out_path}")
+        except Exception as e:
+            self._log_q_put(f"Помилка запису: {e}")
+
+        summary = self._build_summary(demo, legend or "", logs=None)
+        self.after(0, lambda: self._set_log_summary(summary))
+        self.after(0, lambda: self._set_output_text(demo))
+        self.after(0, lambda: self._set_status("Завершено (демо)"))
+        self._log_q_put("Завершено")
+
+    # ----------------- Зведення ----------------- #GPT
+    def _build_summary(self, output_text: str, legend_text: str, logs):
+        # 1) Розбір легенди
+        narrator_tag, narrator_name, mains = self._parse_legend(legend_text)
+
+        # 2) Підрахунки за обробленим текстом
+        lines = [ln for ln in output_text.splitlines() if ln.strip()]
+        total_dialogs = 0
+        unknown_dialogs = 0
+        per_group = {}
+
+        dlg_pat = re.compile(r"^\s*(#g\d+|#g\?)\s*:")
+        grp_pat = re.compile(r"^\s*(#g\d+)\s*:")
+
+        for ln in lines:
+            m = dlg_pat.match(ln)
+            if not m:
+                continue
+            total_dialogs += 1
+            if m.group(1) == "#g?":
+                unknown_dialogs += 1
+            else:
+                g = grp_pat.match(ln)
+                if g:
+                    tag = g.group(1)
+                    per_group[tag] = per_group.get(tag, 0) + 1
+
+        narrator_count = per_group.get(narrator_tag, 0) if narrator_tag else 0
+
+        # 3) Підрахунок спрацювань правил за сирими логами (якщо є)
+        rule_counts = {}
+        raw = ""
+        if isinstance(logs, str):
+            raw = logs
+        elif isinstance(logs, (list, tuple)):
+            try:
+                raw = "\n".join(str(x) for x in logs)
+            except Exception:
+                raw = ""
+        if raw:
+            # Підтримуємо кілька форматів: [RULE] name, rule=name, Rule name, Правило name
+            patterns = [
+                re.compile(r"\[(?:RULE|Rule|rule)\]\s*([\wА-Яа-я_\-]+)"),
+                re.compile(r"\brule\s*[=:]\s*([\w_\-]+)", re.IGNORECASE),
+                re.compile(r"\b(?:Rule|Правило)\s*[:\-]?\s*([\wА-Яа-я_\-]+)")
+            ]
+            for p in patterns:
+                for name in p.findall(raw):
+                    rule_counts[name] = rule_counts.get(name, 0) + 1
+
+        # 4) Рендер зведення
+        lines_out = []
+        if narrator_tag:
+            lines_out.append(f"Оповідач: {narrator_tag} — {narrator_name}")
+        if mains:
+            pretty = ", ".join([f"{t} — {n}" for t, n in mains])
+            lines_out.append(f"Головні герої: {pretty}")
+
+        lines_out.append(f"Кількість діалогів: {total_dialogs}")
+        if narrator_tag:
+            lines_out.append(f"Пряма мова оповідача ({narrator_tag}): {narrator_count}")
+        lines_out.append(f"Нерозпізнаних (#g?): {unknown_dialogs}")
+
+        if per_group:
+            lines_out.append("Присвоєні голоси:")
+            for tag, cnt in sorted(per_group.items(), key=lambda kv: (-kv[1], kv[0])):
+                lines_out.append(f"  {tag} — {cnt}")
+            # Додати порожній рядок після списку голосів
+            lines_out.append("")
+
+        if rule_counts:
+            lines_out.append("Спрацювання правил:")
+            for name, cnt in sorted(rule_counts.items(), key=lambda kv: (-kv[1], kv[0])):
+                lines_out.append(f"  {name} — {cnt}")
+
+        return "\n".join(lines_out) if lines_out else "Немає даних для зведення. Перевірте легенду та вихідний текст."
+
+    def _parse_legend(self, legend_text: str):
+        narrator_keywords = ("оповідач", "наратор", "диктор", "narrator", "voiceover")
+        main_keywords = ("головн", "[main]", "(головн", "main")
+        grp_line = re.compile(r"^\s*(#g\d+)\s*[:\-]\s*(.+?)\s*$", re.IGNORECASE)
+
+        narrator_tag = None
+        narrator_name = None
+        mains = []  # list[(tag, name)]
+
+        for raw in legend_text.splitlines():
+            m = grp_line.match(raw)
+            if not m:
+                continue
+            tag, name = m.group(1), m.group(2)
+            low = name.lower()
+            if any(k in low for k in narrator_keywords) and not narrator_tag:
+                narrator_tag, narrator_name = tag, name.strip()
+            if any(k in low for k in main_keywords):
+                mains.append((tag, name.strip()))
+
+        # Якщо оповідача явно не знайдено, спробуємо #g2 як звичну умовність
+        if narrator_tag is None:
+            for raw in legend_text.splitlines():
+                m = grp_line.match(raw)
+                if m and m.group(1) == "#g2":
+                    narrator_tag, narrator_name = m.group(1), m.group(2).strip()
+                    break
+
+        return narrator_tag, narrator_name, mains
+
+    # ----------------- Оновлення UI ----------------- #GPT
+    def _set_log_summary(self, text: str):
+        self.txt_log.configure(state="normal")
+        self.txt_log.delete("1.0", "end")
+        self.txt_log.insert("1.0", text)
+        self.txt_log.see("1.0")
+        self.txt_log.configure(state="normal")
+        # Після зведення можна оновити список тегів
+        self._rebuild_tags()
+
+    def _start_worker(self, target, args=()):
+        self.btn_run.config(state="disabled")
+        self._set_busy(True)
+        t = threading.Thread(target=self._wrap_worker, args=(target, args), daemon=True)
+        t.start()
+
+    def _wrap_worker(self, target, args):
+        try:
+            self._working = True
+            target(*args)
+        finally:
+            self._working = False
+            self.after(0, lambda: (self.btn_run.config(state="normal"), self._set_busy(False)))
+    # ----------------- Zero-shot (#g?) ----------------- #GPT
+    def _run_zeroshot(self):
+        out_path = (self.out_path.get() or DEF_OUTPUT).strip()
+        if not out_path or not os.path.isfile(out_path):
+            messagebox.showerror("Помилка", "Немає вихідного файлу з діалогами. Спочатку запустіть основну обробку.")
+            return
+        legend = self.txt_legend.get("1.0", "end-1c").strip()
+        if not legend:
+            messagebox.showerror("Помилка", "Легенда порожня. Вставте або завантажте легенду.")
+            return
+        self._start_worker(self._zeroshot_process, args=(out_path, legend))
+
+    def _zeroshot_process(self, out_path: str, legend_text: str):
+        self._log_q_put("ML_model: старт класифікації #g?")
+        # 1) Підготувати легенду у форматі JSON, який очікує скрипт
+        def _legend_plain_to_json(txt: str) -> dict:
+            """Перетворити текстові рядки виду '#gN: Ім'я (опис...)' у JSON-структуру."""
+            gid_to_names = {}
+            name_to_gid = {}
+            narrator_gid = None
+            narr_keys = ("оповідач", "наратор", "narrator", "диктор", "voiceover")
+            rx = re.compile(r"^\s*(#g\d+)\s*[:\-]\s*(.+?)\s*$", re.IGNORECASE)
+            for raw in txt.splitlines():
+                m = rx.match(raw)
+                if not m:
+                    continue
+                gid, name = m.group(1), m.group(2).strip()
+                # базове ім'я до першої дужки або коми
+                base = name.split("(")[0].split(",")[0].strip()
+                if not base:
+                    continue
+                gid_to_names.setdefault(gid, [])
+                if base not in gid_to_names[gid]:
+                    gid_to_names[gid].append(base)
+                name_to_gid.setdefault(base, gid)
+                low = name.lower()
+                if narrator_gid is None and any(k in low for k in narr_keys):
+                    narrator_gid = gid
+            # дефолт для оповідача
+            if narrator_gid is None and "#g2" in gid_to_names:
+                narrator_gid = "#g2"
+            return {
+                "gid_to_names": gid_to_names,   # напр.: {"#g2": ["Лоло"], "#g3": ["Таша"]}
+                "name_to_gid": name_to_gid,     # напр.: {"Лоло": "#g2", "Таша": "#g3"}
+                "narrator_gid": narrator_gid    # напр.: "#g2" або None
+            }
+
+        try:
+            # Якщо легенда вже JSON — використати як є
+            parsed = None
+            try:
+                parsed = json.loads(legend_text)
+            except Exception:
+                parsed = _legend_plain_to_json(legend_text)
+            lf = tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8", suffix=".json")
+            with lf:
+                json.dump(parsed, lf, ensure_ascii=False, indent=2)
+            legend_path = lf.name
+        except Exception as e:
+            self._log_q_put(f"Помилка підготовки легенди: {e}")
+            self.after(0, lambda: self._set_status("Помилка"))
+            return
+
+        ok = False
+        # 0) Підготувати тимчасовий TSV-лог для ML-модуля
+        log_path = None
+        try:
+            lf_log = tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8", suffix=".tsv")
+            lf_log.close()
+            log_path = lf_log.name
+        except Exception:
+            # Фолбек у поточну теку
+            log_path = os.path.join(os.getcwd(), "ml_zeroshot_log.tsv")
+
+        # 2) Модульний виклик, якщо доступний (підтримка нового та старого імені). Тихий fallback.
+        zsf = None
+        try:
+            import zeroshot_speaker_models as zsf  # type: ignore
+        except Exception:
+            try:
+                import ukrroberta_zeroshot_from_files as zsf  # type: ignore
+            except Exception:                zsf = None
+
+        if zsf and hasattr(zsf, "process_file"):
+            try:
+                # новіша сигнатура з log_path
+                zsf.process_file(
+                    input_path=out_path,
+                    legend_path=legend_path,
+                    output_path=out_path,
+                    only_unknown=True,              # type: ignore
+                    log_path=log_path,              # type: ignore
+                )
+            except TypeError:
+                # сумісність зі старою сигнатурою без log_path
+                zsf.process_file(
+                    input_path=out_path, legend_path=legend_path, output_path=out_path, only_unknown=True  # type: ignore
+                )
+            ok = True
+            self._log_q_put("ML_model: модульний виклик успішний")
+
+        # 3) Запуск як окремого скрипта
+        if not ok:
+            py = sys.executable or "python"
+            attempts = [
+                # основний варіант з очікуваними прапорцями
+                [py, "-u", "zeroshot_speaker_models.py", "--in", out_path, "--out", out_path,
+                 "--legend", legend_path, "--log", log_path],
+                # альтернативний варіант без legend (раптом скрипт має дефолтну легенду)
+                [py, "-u", "zeroshot_speaker_models.py", "--in", out_path, "--out", out_path, "--log", log_path],
+                # альтернативний варіант без legend (раптом скрипт має дефолтну легенду)
+                [py, "-u", "zeroshot_speaker_models.py", "--in", out_path, "--out", out_path, "--legend", legend_path],
+                # мінімальний фолбек
+                [py, "-u", "zeroshot_speaker_models.py", "--in", out_path, "--out", out_path],
+            ]
+            last_err = None
+            for cmd in attempts:
+                try:
+                    self._log_q_put("Запуск: " + " ".join(cmd))
+                    cp = subprocess.run(cmd, capture_output=True, text=True, cwd=os.getcwd())
+                    if cp.stdout.strip():
+                        self._log_q_put(cp.stdout.strip())
+                    if cp.returncode == 0:
+                        ok = True
+                        break
+                    else:
+                        last_err = cp.stderr.strip() or cp.stdout.strip()
+                        if last_err:
+                            self._log_q_put(f"stderr: {last_err}")
+                except Exception as e:
+                    last_err = str(e)
+                    self._log_q_put(f"Помилка запуску: {e}")
+
+            if not ok:
+                self._log_q_put("ML_model: не вдалося запустити")
+                self.after(0, lambda: self._set_status("Помилка"))
+                try:
+                    os.unlink(legend_path)
+                except Exception:
+                    pass
+                return
+
+        # 4) Перечитати вихід та оновити UI
+        try:
+            with open(out_path, "r", encoding="utf-8") as f:
+                new_text = f.read()
+            summary = self._build_summary(new_text, legend_text, logs=None)
+            self.after(0, lambda: self._set_output_text(new_text))
+            if log_path and os.path.exists(log_path):
+                self._log_q_put(f"ML_model: TSV лог → {log_path}")
+            self.after(0, lambda: self._set_log_summary(summary))
+            self.after(0, lambda: self._set_status("Завершено (ML_model)"))
+            self._log_q_put("ML_model: готово")
+        except Exception as e:
+            self._log_q_put(f"Помилка читання результату: {e}")
+            self.after(0, lambda: self._set_status("Помилка"))
+        finally:
+            try:
+                os.unlink(legend_path)
+            except Exception:
+                pass
+
+
+    # ----------------- Кнопки легенди ----------------- #GPT
+    def _clear_legend(self):
+        self.txt_legend.delete("1.0", "end")
+        self._set_status("Легенду очищено")
+        self._rebuild_tags()
+
+    def _paste_legend(self):
+        try:
+            text = self.clipboard_get()
+        except Exception:
+            text = ""
+        if text:
+            self.txt_legend.delete("1.0", "end")
+            self.txt_legend.insert("1.0", text)
+            self._set_status("Легенду вставлено")
+            self._rebuild_tags()
+
+    def _load_legend_file(self):
+        path = filedialog.askopenfilename(
+            title="Обрати файл легенди",
+            filetypes=[("Текстові файли", "*.txt"), ("Усі файли", "*.*")]
+        )
+        if path:
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    text = f.read()
+                self.txt_legend.delete("1.0", "end")
+                self.txt_legend.insert("1.0", text)
+                self._set_status(f"Легенда завантажена: {os.path.basename(path)}")
+                self._rebuild_tags()
+            except Exception as e:
+                messagebox.showerror("Помилка читання", str(e))
+
+    # ----------------- Короткі події ----------------- #GPT
+    def _append_log(self, line: str):
+        self.txt_log.insert("end", line.rstrip() + "\n")
+        self.txt_log.see("end")
+
+    def _log_q_put(self, line: str):
+        self.log_q.put(line)
+
+    def _drain_logs(self):
+        try:
+            burst = []
+            for _ in range(20):  # до 20 коротких повідомлень за тик
+                burst.append(self.log_q.get_nowait())
+        except queue.Empty:
+            pass
+        if burst:
+            self._append_log("\n".join(burst))
+        # Пульс стану під час роботи
+        if self._working:
+            self._status_tick = (self._status_tick + 1) % 20
+            dots = (self._status_tick // 5) + 1
+            self._set_status("Працює" + "." * dots)
+        self.after(120, self._drain_logs)
+
+    def _set_output_text(self, text: str):
+        self.txt_output.delete("1.0", "end")
+        self.txt_output.insert("1.0", text)
+        self.txt_output.see("1.0")
+        # Після оновлення виходу оновити список тегів
+        self._rebuild_tags()
+
+    def _set_status(self, s: str):
+        self.status.config(text=s)
+
+    def _set_busy(self, is_busy: bool):
+        try:
+            self.configure(cursor="watch" if is_busy else "")
+        except Exception:
+            pass
+
+    def _ctrl(self, event, what):
+        w = event.widget
+        try:
+            if what == "copy":
+                w.event_generate("<<Copy>>")
+            elif what == "paste":
+                w.event_generate("<<Paste>>")
+            elif what == "cut":
+                w.event_generate("<<Cut>>")
+            elif what == "selall":
+                if isinstance(w, tk.Text):
+                    w.tag_add("sel", "1.0", "end-1c")
+                elif isinstance(w, ttk.Entry):
+                    w.select_range(0, "end")
+        except Exception:
+            pass
+        return "break"
+
+    def _auto_copy_sel_text(self, w):
+        """Копіює поточне виділення у системний буфер обміну (Windows) без натискання Ctrl+C."""
+        try:
+            # tk.Text
+            if isinstance(w, tk.Text):
+                if w.tag_ranges("sel"):
+                    s = w.get("sel.first", "sel.last")
+                    if s:
+                        self.clipboard_clear()
+                        self.clipboard_append(s)
+            # ttk.Entry або tk.Entry
+            elif isinstance(w, ttk.Entry) or isinstance(w, tk.Entry):
+                try:
+                    start = w.index("sel.first")
+                    end   = w.index("sel.last")
+                except tk.TclError:
+                    return
+                s = w.get()
+                if start is not None and end is not None and 0 <= start < end <= len(s):
+                    self.clipboard_clear()
+                    self.clipboard_append(s[start:end])
+        except Exception:
+            pass
+
+    def _bind_shortcuts(self):
+        self.bind("<Control-s>", self._save_output_shortcut)
+        self.bind("<F5>", lambda _e: self._run_processing())
+        # Глобальні гарячі клавіші у стилі Windows — тільки як РЕЗЕРВ.
+        # Локальні бинди на Text/Entry уже делегують у <<Copy/ Paste/ Cut>>.
+        # Тут лише фолбеки на випадок, якщо виджет не обробив подію.
+        self.bind_all("<Control-c>", self._global_copy, add="+")
+        self.bind_all("<Control-Insert>", self._global_copy, add="+")
+        self.bind_all("<Control-v>", self._global_paste, add="+")
+        self.bind_all("<Shift-Insert>", self._global_paste, add="+")
+        self.bind_all("<Control-x>", self._global_cut, add="+")
+        self.bind_all("<Shift-Delete>", self._global_cut, add="+")
+
+    def _global_copy(self, event=None):
+        """Фолбек для Copy: якщо фокус-віджет не обробив Ctrl+C, беремо глобальне виділення."""
+        try:
+            w = self.focus_get()
+        except Exception:
+            w = None
+        # Спробувати стандартну дію
+        try:
+            if w is not None:
+                w.event_generate("<<Copy>>")
+        except Exception:
+            pass
+        # Резерв: забрати виділення з Tk та покласти у clipboard
+        try:
+            sel = self.selection_get()
+            if sel:
+                self.clipboard_clear()
+                self.clipboard_append(sel)
+        except Exception:
+            pass
+        return "break"
+
+    def _global_paste(self, event=None):
+        """Фолбек для Paste: делегувати у фокус-віджет; більше нічого не робити."""
+        try:
+            w = self.focus_get()
+        except Exception:
+            w = None
+        try:
+            if w is not None:
+                w.event_generate("<<Paste>>")
+        except Exception:
+            pass
+        return "break"
+
+    def _global_cut(self, event=None):
+        """Фолбек для Cut: делегувати у фокус-віджет; якщо не вдалось і це Text/Entry — вирізати вручну."""
+        try:
+            w = self.focus_get()
+        except Exception:
+            w = None
+        # Спробувати стандартну дію
+        did = False
+        try:
+            if w is not None:
+                w.event_generate("<<Cut>>")
+                did = True
+        except Exception:
+            pass
+        if not did and isinstance(w, (tk.Text, tk.Entry, ttk.Entry)):
+            try:
+                if isinstance(w, tk.Text):
+                    if w.tag_ranges("sel"):
+                        s = w.get("sel.first", "sel.last")
+                        self.clipboard_clear(); self.clipboard_append(s)
+                        w.delete("sel.first", "sel.last")
+                else:  # Entry/ttk.Entry
+                    try:
+                        start = w.index("sel.first"); end = w.index("sel.last")
+                        s = w.get()[start:end]
+                        self.clipboard_clear(); self.clipboard_append(s)
+                        w.delete(start, end)
+                    except tk.TclError:
+                        pass
+            except Exception:
+                pass
+        return "break"
+
+    def _save_output_shortcut(self, _evt=None):
+        path = self.out_path.get().strip() or DEF_OUTPUT
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(self.txt_output.get("1.0", "end-1c"))
+            self._append_log(f"Збережено: {path}")
+            self._set_status("Збережено")
+        except Exception as e:
+            messagebox.showerror("Помилка запису", str(e))
+            self._set_status("Помилка запису")
+
+    # ----------------- Пошук і автозбереження ----------------- #GPT
+    def _rebuild_tags(self):
+        """Оновити вміст Combobox із тегами з легенди та вихідного тексту."""
+        try:
+            tags = set()
+            # З легенди
+            legend_text = self.txt_legend.get("1.0", "end-1c")
+            for m in re.finditer(r"(?mi)^\s*(#g\d+)\s*[:\-]", legend_text):
+                tags.add(m.group(1))
+            # З виходу
+            out_text = self.txt_output.get("1.0", "end-1c")
+            for m in re.finditer(r"(?m)^\s*(#g\d+|#g\?)\s*:", out_text):
+                tags.add(m.group(1))
+            tags = sorted(t for t in tags if t != "#g?")
+            items = ["#g?"] + tags
+            if hasattr(self, "cmb_tag"):
+                self.cmb_tag["values"] = items
+                # Зберегти поточний, якщо він є у списку, інакше скинути на #g?
+                cur = self.search_var.get()
+                self.search_var.set(cur if cur in items else "#g?")
+        except Exception:
+            pass
+
+    def _find_next_for_tag(self, tag: str):
+        """Знайти наступний збіг для активного тегу, тег не змінюється."""
+        if not tag:
+            return
+        pat = re.compile(rf"(?m)^\s*{re.escape(tag)}\s*:")
+        text = self.txt_output.get("1.0", "end-1c")
+        idx = self.txt_output.index("insert")
+        def _to_offset(tk_index: str) -> int:
+            line, col = map(int, tk_index.split("."))
+            lines = text.splitlines(keepends=True)
+            return sum(len(x) for x in lines[: line - 1]) + col
+
+        start_off = _to_offset(idx)
+        m = pat.search(text, pos=start_off + 1)
+        if not m:
+            m = pat.search(text, pos=0)
+        if not m:
+            self._set_status("Збігів не знайдено")
+            return
+        start, end = m.span()
+        self._goto_output_span(start, end)
+
+    def _find_prev_for_tag(self, tag: str):
+        """Знайти попередній збіг для активного тегу, тег не змінюється."""
+        if not tag:
+            return
+        pat = re.compile(rf"(?m)^\s*{re.escape(tag)}\s*:")
+        text = self.txt_output.get("1.0", "end-1c")
+        idx = self.txt_output.index("insert")
+        def _to_offset(tk_index: str) -> int:
+            line, col = map(int, tk_index.split("."))
+            lines = text.splitlines(keepends=True)
+            return sum(len(x) for x in lines[: line - 1]) + col
+
+        start_off = _to_offset(idx)
+        # Пошук у зворотному напрямку
+        matches = list(pat.finditer(text, 0, start_off))
+        if matches:
+            m = matches[-1]
+        else:
+            all_matches = list(pat.finditer(text))
+            m = all_matches[-1] if all_matches else None
+        if not m:
+            self._set_status("Збігів не знайдено")
+            return
+        start, end = m.span()
+        self._goto_output_span(start, end)
+
+    def _goto_output_span(self, start: int, end: int):
+        """Прокрутка до діапазону у txt_output за offsets і підсвічування."""
+        # Зняти попередні підсвітки
+        self.txt_output.tag_remove("find_match", "1.0", "end")
+        # Обчислити Tk-індекси
+        text = self.txt_output.get("1.0", "end-1c")
+        # Нарізати до start, щоб отримати line.col
+        pre = text[:start]
+        line = pre.count("\n") + 1
+        col = len(pre.split("\n")[-1])
+        start_idx = f"{line}.{col}"
+        # Аналогічно для end
+        pre_end = text[:end]
+        line_e = pre_end.count("\n") + 1
+        col_e = len(pre_end.split("\n")[-1])
+        end_idx = f"{line_e}.{col_e}"
+        # Підсвітити
+        self.txt_output.tag_add("find_match", start_idx, end_idx)
+        self.txt_output.see(start_idx)
+        self.txt_output.mark_set("insert", start_idx)
+        self.txt_output.focus_set()
+
+    def _on_output_key(self, _evt=None):
+        # Debounce 700 мс
+        if self._autosave_after_id is not None:
+            try:
+                self.after_cancel(self._autosave_after_id)
+            except Exception:
+                pass
+        self._autosave_after_id = self.after(700, self._autosave_commit)
+
+    def _autosave_commit(self):
+        self._autosave_after_id = None
+        path = self.out_path.get().strip() or DEF_OUTPUT
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(self.txt_output.get("1.0", "end-1c"))
+            self._set_status("Автозбережено")
+        except Exception as e:
+            self._append_log(f"Помилка автозбереження: {e}")
+
+    # ----------------- Дефолтні файли ----------------- #GPT
+    def _load_defaults(self):
+        if os.path.exists(DEF_INPUT):
+            self.in_path.set(DEF_INPUT)
+        else:
+            self.in_path.set("")
+        self.out_path.set(DEF_OUTPUT)
+        if os.path.exists(DEF_LEGEND):
+            try:
+                with open(DEF_LEGEND, "r", encoding="utf-8") as f:
+                    text = f.read()
+                self.txt_legend.delete("1.0", "end")
+                self.txt_legend.insert("1.0", text)
+            except Exception:
+                pass
+        # Початкове наповнення списку тегів
+        self._rebuild_tags()
+
+# --------------------- Точка входу --------------------- #GPT
+if __name__ == "__main__":
+    app = DialogGUI()
+    app.mainloop()

@@ -1,0 +1,55 @@
+,file,lines,has_BOM,ellipsis_count,suspicious_samples
+9,rules/038_detect_scenes.py,130,False,7,"L5: meta[""scenes""] = [{""label"": ""Пролог"", ""line"": 0}, {""label"": ""Глава 1"", ""line"": 123}, ...] | L7: meta[""scene_index_by_line""] = { <line_idx>: <index_in_meta[""scenes""]>, ... } | L8: meta[""scene_spans""] = [{""label"": ""..."", ""start"": i, ""end"": j}, ...]  # кінець включно"
+14,rules/049_build_aliases_fallback_from_raw_lines.py,127,False,4,"L5: Джерело - ""сира"" легенда у вигляді #gN -> ""Назва (attrs, ...)"" | L6: або alias -> #gN, де alias = ""Назва (attrs, ...)"". | L23: """"""'Правнучка (F, дівчинка, дитина, онучка, сонечко)' -> (['Правнучка'], 'F, дівчинка, ...')"""""""
+18,rules/052_extract_roles_gender.py,170,False,4,"L7: ""names"":[""Правнучка""], ""aliases"":[...], ""first_person"": False}, | L8: ... | L11: “сирі” рядки легенди (#gN - Назва (атрибути,...)) з ctx.legend або meta.legend_text."
+29,rules/072_inline_sayer_after_quote.py,150,False,3,L5: — ... — сказала Таша.      → #g(Таша) | L6: «...» — сказав Нієр.       → #g(Нієр) | L7: — ... — сказав я.          → first_person_gid (з легенди hints)
+44,rules/076_vocative_uk_morph.py,190,False,2,"L58: alias_key -> {#gN,...} | L59: й паралельно будує #gN -> {alias_key,...} для швидкої перевірки самозвертання"
+0,zeroshot_speaker_models.py,730,True,2,"L110: # Bridge форматів: очікуємо {gid_to_names: {""#gN"": [names…]}, name_to_gid: {...}, narrator_gid: ""#gX""} | L301: """"""Правило 4: 'сказав ... Ім'я' → пріоритетний спікер."""""""
+52,GUI.py,825,True,1,"L459: """"""Перетворити текстові рядки виду '#gN: Ім'я (опис...)' у JSON-структуру."""""""
+11,rules/041_normalize_dialog_punct.py,165,False,1,"L7: • ""..."" → ""…"" (U+2026)."
+15,rules/050_build_metadata_from_legend.py,141,False,1,"L7: ctx.metadata.relations   : [(""mother"", ""#gA"", ""#gB""), ...]  з фраз типу ""мати <Ім'я>"""
+22,rules/072b_pronoun_inline_sayer.py,88,False,1,"L10: Вимагає: meta[""roles_gender""] = { ""#gN"": {""gender"": ""M""/""F"", ...}, ... } (див. 052_extract_roles_gender.py)"
+31,rules/073a_first_person_sameline.py,65,False,1,L11: # УВАГА: усі групи — НЕзахоплюючі (?:...) щоб не плодити капчури усередині PAT
+33,rules/073c_heard_voice_leadin.py,145,False,1,"L17: # Ловимо будь-яке ім'я після ""голос ...:"""
+53,improved_logic.py,373,False,0,
+1,models_/1 sentence-transformers_LaBSE.py,103,False,0,
+2,models_/2 minilm_zeroshot_dialogs.py,104,False,0,
+3,models_/3 xlmroberta_xnli_zeroshot_dialogs.py,62,False,0,
+4,models_/4 deberta_xnli_zeroshot_dialogs.py,59,False,0,
+5,models_/5 ukrroberta_embeddings_zeroshot.py,111,False,0,
+6,models_/6 e5_large_zeroshot_dialogs.py,111,False,0,
+7,models_/7 mpnet_zeroshot_dialogs.py,101,False,0,
+8,rules/001_debug_legend_dump.py,96,False,0,
+10,rules/040_fix_cyrillic_latin_lookalikes.py,5,False,0,
+12,rules/042_detect_dialog_blocks.py,53,False,0,
+13,rules/045_split_mixed_dialog_and_narration.py,89,False,0,
+16,rules/051_enrich_aliases_from_parenthetical.py,132,False,0,
+17,rules/052b_set_first_person_hint.py,27,False,0,
+19,rules/053_universal_scene_time_location_constraints.py,152,False,0,
+20,rules/060_reset_all_dialogs_to_q.py,39,False,0,
+21,rules/069_g1_no_dialog.py,85,False,0,
+23,rules/072c_inline_sayer_no_verb.py,94,False,0,
+24,rules/072d_inline_sayer_with_verb_name.py,113,False,0,
+25,rules/072e_demote_thoughts_without_name.py,83,False,0,
+26,rules/072e_thoughts_to_tag.py,113,False,0,
+27,rules/072f_demote_isolated_quotes_near_aphorism.py,73,False,0,
+28,rules/072g_inline_first_person_sayer.py,65,False,0,
+37,rules/073_leadin_speaker_from_narrative.py,119,False,0,
+30,rules/073a_first_person_leadin_nextline.py,52,False,0,
+32,rules/073b_coref_pronouns.py,159,False,0,
+34,rules/073d_possessive_voice_leadin.py,115,False,0,
+35,rules/073e_rank_title_leadin.py,109,False,0,
+36,rules/073f_named_leadin_colon.py,134,False,0,
+42,rules/074_pair_lock_from_vocatives_v3.py,195,False,0,
+38,rules/074a_inject_block_boundaries.py,44,False,0,
+39,rules/074c_block_g4_after_prologue.py,25,False,0,
+40,rules/074d_firstperson_to_child_when_addressing_mother.py,62,False,0,
+41,rules/074z_keep_inline_name_over_pairlock.py,112,False,0,
+43,rules/075_demote_forbidden_by_scene.py,71,False,0,
+47,rules/077_fix_dialog_flip.py,207,False,0,
+45,rules/077b_enforce_two_speaker_alternation.py,169,False,0,
+46,rules/077c_fill_gap_between_same_speaker.py,133,False,0,
+48,rules/079_validate_consensus.py,277,False,0,
+49,rules/098_remove_block_markers.py,27,False,0,
+50,rules/099_metrics_report.py,207,False,0,
+51,rules/__init__.py,0,False,0,

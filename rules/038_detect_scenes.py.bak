@@ -1,0 +1,130 @@
+# 038_detect_scenes.py — детектор меж сцен (Пролог / Глава N / Розділ N / Частина N / Епілог)
+# -*- coding: utf-8 -*-
+"""
+Визначає межі сцен і заносить у ctx.metadata:
+  meta["scenes"] = [{"label": "Пролог", "line": 0}, {"label": "Глава 1", "line": 123}, ...]
+  meta["scene"]  = поточна сцена (остання знайдена під час проходу)
+  meta["scene_index_by_line"] = { <line_idx>: <index_in_meta["scenes"]>, ... }
+  meta["scene_spans"] = [{"label": "...", "start": i, "end": j}, ...]  # кінець включно
+
+Підтримує заголовки як ОКРЕМІ рядки без #g, або як #g1: ... :
+  • Пролог / Епілог
+  • Глава 7 / Розділ 3 / Частина 2  (дозволяє також римські числа: Глава IV)
+  • Кінець прологу → ставить межу (мітка "Кінець прологу"), але не змінює попередню сцену
+
+Нічого в тексті не змінює. Працює ДО правил, що потребують поточної сцени (напр. 053_*).
+"""
+
+import re
+
+PHASE, PRIORITY, SCOPE, NAME = 38, 0, "fulltext", "detect_scenes"  # запускаємо до 041/050+
+
+# Рядок з тегом #gN:
+TAG_ANY = re.compile(r"^\s*#g(\d+|\?)\s*:\s*(.*)$", re.DOTALL)
+
+# Прості заголовки без тегів (#g) — лише сам рядок
+PLAIN_SCENE_RX = re.compile(
+    r"""^\s*(?:
+            (?P<solo>(пролог|епілог))                                   # Пролог / Епілог
+            |
+            (?P<head>(глава|розділ|частина))\s+
+            (?P<num>(\d+|[IVXLCDM]+))                                   # арабські або римські
+        )\.?\s*$""",
+    re.IGNORECASE | re.VERBOSE
+)
+
+# Те саме усередині наративного рядка #g1:
+G1_SCENE_RX = re.compile(
+    r"""^\s*(?:
+            (?P<solo>(пролог|епілог))
+            |
+            (?P<head>(глава|розділ|частина))\s+
+            (?P<num>(\d+|[IVXLCDM]+))
+        )\.?\s*$""",
+    re.IGNORECASE | re.VERBOSE
+)
+
+# Кінець прологу — окремий маркер межі
+END_PROLOGUE_RX = re.compile(r"^\s*(?:#g1\s*:\s*)?кінець\s+прологу\.?\s*$", re.IGNORECASE)
+
+def _label_from_match(m):
+    solo = m.group("solo") if m else None
+    head = m.group("head") if m else None
+    num  = m.group("num")  if m else None
+    if solo:
+        return solo.strip().capitalize()
+    if head and num:
+        return f"{head.strip().capitalize()} {num.strip()}"
+    return None
+
+def apply(text: str, ctx):
+    lines = text.splitlines(keepends=True)
+
+    scenes = []                  # [{"label":..., "line": idx}, ...]
+    scene_index_by_line = {}     # line_idx -> index in scenes
+    scene_spans = []             # [{"label":..., "start": i, "end": j}, ...]
+    current_idx = None
+
+    for i, raw in enumerate(lines):
+        line = raw.rstrip("\n")
+
+        # 1) plain заголовок без тегів
+        m_plain = PLAIN_SCENE_RX.match(line)
+        if m_plain:
+            label = _label_from_match(m_plain)
+            scenes.append({"label": label, "line": i})
+            current_idx = len(scenes) - 1
+            scene_index_by_line[i] = current_idx
+            continue
+
+        # 2) #g1: заголовок
+        m_tag = TAG_ANY.match(line)
+        if m_tag:
+            gid, body = m_tag.groups()
+            if gid == "1":
+                # #g1: Пролог / Глава N ...
+                m_g1 = G1_SCENE_RX.match(body.strip())
+                if m_g1:
+                    label = _label_from_match(m_g1)
+                    scenes.append({"label": label, "line": i})
+                    current_idx = len(scenes) - 1
+                    scene_index_by_line[i] = current_idx
+                    continue
+
+        # 3) кінець прологу — маркер межі (додаємо як окрему "сцену-межу")
+        if END_PROLOGUE_RX.match(line):
+            label = "Кінець прологу"
+            scenes.append({"label": label, "line": i})
+            current_idx = len(scenes) - 1
+            scene_index_by_line[i] = current_idx
+            continue
+
+        # маркуємо приналежність поточній сцені (якщо вже є)
+        if current_idx is not None:
+            scene_index_by_line[i] = current_idx
+
+    # Побудова spans (start/end) — кінець включно
+    if scenes:
+        for idx, item in enumerate(scenes):
+            start = item["line"]
+            end = (scenes[idx + 1]["line"] - 1) if idx + 1 < len(scenes) else (len(lines) - 1)
+            scene_spans.append({"label": item["label"], "start": start, "end": end})
+
+    # Запис у метадані
+    meta = getattr(ctx, "metadata", {}) or {}
+    meta["scenes"] = scenes
+    meta["scene_index_by_line"] = scene_index_by_line
+    if scenes:
+        meta["scene"] = scenes[-1]["label"]  # поточна (остання знайдена) сцена
+    meta["scene_spans"] = scene_spans
+    setattr(ctx, "metadata", meta)
+
+    # Лог
+    try:
+        ctx.logs.append(f"[038 scenes] found:{len(scenes)} spans:{len(scene_spans)} current:{meta.get('scene')}")
+    except Exception:
+        pass
+
+    return text
+
+apply.phase, apply.priority, apply.scope, apply.name = PHASE, PRIORITY, SCOPE, NAME

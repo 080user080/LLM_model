@@ -1,0 +1,85 @@
+﻿# 045_split_mixed_dialog_and_narration.py — рвемо змішані рядки «… . — …» на окремі
+# -*- coding: utf-8 -*-
+import re
+
+PHASE, PRIORITY, SCOPE, NAME = 45, 0, "fulltext", "split_mixed_dialog_and_narration"
+
+NBSP = "\u00A0"
+TAG = re.compile(r"^(\s*)#g(\d+|\?)\s*:\s*(.*)$")
+DASHES = "-\u2012\u2013\u2014\u2015"
+ENDP   = r"(?:[.!?\"”»']|\u2026|\.\.\.)"  # кінець фрази: ., !, ?, … або ...
+# межа: «…[.!?…]» + пробіли/таб/NBSP + «—/–/-» → нова репліка
+BOUND = re.compile(rf"({ENDP})[ \t\u00A0]*[{re.escape(DASHES)}][ \t\u00A0]*")
+# якщо всередині тіла є «— … — {атрибуція} …» + далі безтирешний текст — теж рвемо
+INLINE_ATTR_THEN_TEXT = re.compile(
+    rf"{ENDP}[ \t\u00A0]*[{re.escape(DASHES)}][ \t\u00A0]*[A-Za-zА-Яа-яЇїІіЄєҐґ'’-]+[^.\n]*{ENDP}[ \t\u00A0]+(?![{re.escape(DASHES)}])"
+)
+
+def _nrm(s:str)->str: return (s or "").replace(NBSP, " ")
+
+def _split_once(body:str):
+    """Повертає або None (не рвати), або список частин після розрізу по BOUND."""
+    # пряма межа «… . — …»
+    if BOUND.search(body):
+        mark = BOUND.sub(r"\1\n<<<NEWDIALOG>>>\n", body, count=1)
+        return mark.split("\n<<<NEWDIALOG>>>\n")
+    # випадок: «— … — сказала Ім'я, … Текст без тире…» → відокремлюємо другу частину як наратив
+    if INLINE_ATTR_THEN_TEXT.search(body):
+        # шукаємо перший «кінцевий» знак після атрибуції
+        m = re.search(rf"{ENDP}\s+(?![{re.escape(DASHES)}])", body)
+        if m:
+            a, b = body[:m.start(0)+1], body[m.end(0):]
+            return [a, b]
+    return None
+
+def _rebuild_lines(indent, gid_s, parts):
+    out = []
+    # перша частина лишається під тим самим тегом
+    first = parts[0].strip()
+    if first:
+        out.append(f"{indent}#g{gid_s}: {first}")
+    # решту нормалізуємо: якщо починається з тире/лапок — це репліка → #g?; інакше наратив → #g1
+    for p in parts[1:]:
+        p = p.strip()
+        if not p: continue
+        if p[:1] in DASHES or p[:1] in '«"„“”\'’':
+            # прибираємо випадковий дефіс і уніфікуємо тире
+            p = re.sub(rf"^\s*[-{re.escape(''.join(DASHES[1:]))}]\s*", "– ", p)
+            out.append(f"{indent}#g?: {p}")
+        else:
+            out.append(f"{indent}#g1: {p}")
+    return out
+
+def apply(text: str, ctx):
+    lines = text.splitlines()
+    out, splits = [], 0
+
+    for ln in lines:
+        m = TAG.match(ln)
+        if not m:
+            out.append(ln); continue
+        indent, gid_s, body = m.groups()
+        if gid_s == "1":
+            # теж може містити «… — …» у кінці наративу → рвемо
+            parts = _split_once(_nrm(body))
+            if not parts:
+                out.append(ln); continue
+            out.extend(_rebuild_lines(indent, gid_s, parts))
+            splits += 1
+            continue
+
+        # #gN або #g?
+        parts = _split_once(_nrm(body))
+        if not parts:
+            out.append(ln); continue
+        out.extend(_rebuild_lines(indent, gid_s, parts))
+        splits += 1
+
+    try:
+        ctx.logs.append(f"[045 split_mixed] splits:{splits}")
+    except Exception:
+        pass
+
+    return "\n".join(out) + ("\n" if text.endswith("\n") else "")
+
+apply.phase, apply.priority, apply.scope, apply.name = PHASE, PRIORITY, SCOPE, NAME

@@ -1,0 +1,373 @@
+# -*- coding: utf-8 -*-
+"""
+improved_logic.py — основна логіка розстановки діалогів.
+• Підтримує підвантаження правил з ./rules
+• Удосконалений fallback оповідача (враховує всі тире/лапки, NBSP/тонкі пробіли)
+• Демоція помилкових "#g1:" перед діалогом у "#g?:"
+• Детальний лог завантаження правил
+• API: process_dialogs(input_path, legend_text, workers=1, output_path=None)
+"""
+from __future__ import annotations
+
+import os
+import re
+import traceback
+import importlib.util
+from typing import Any, Callable, Dict, List, Optional, Tuple
+
+# ---- Налаштування відладки ----
+DEBUG_RULES_PRINT = True          # друк списку завантажених правил у консоль
+DEBUG_FORCE_LOAD_ALL = False      # ігнорувати _should_skip_rule (увімкнути лише для діагностики)
+ECHO_LOGS_TO_CONSOLE = True       # дублювати агрегований лог у консоль
+
+RULES_DIR = os.path.join(os.path.dirname(__file__), "rules")
+
+# --- Допоміжні для виявлення діалогів/пробілів ---
+DASHES = "\u002D\u2010\u2011\u2012\u2013\u2014\u2015"  # -, ‐, ‑, ‒, –, —, ―
+
+def _normalize_ws(s: str) -> str:
+    """Нормалізує пробіли: NBSP/NNBSP/thin/figure/zero-width → звичайний пробіл або видаляє."""
+    return (
+        s.replace("\u00A0", " ")   # NBSP
+         .replace("\u202F", " ")   # NNBSP
+         .replace("\u2009", " ")   # thin space
+         .replace("\u2007", " ")   # figure space
+         .replace("\u200A", " ")   # hair space
+         .replace("\u200B", "")    # zero-width space
+    )
+
+
+class ProcessingContext:
+    def __init__(self, legend: Dict[str, str], narrator_tag: str = "#g1"):
+        self.legend: Dict[str, str] = legend
+        self.narrator_tag: str = narrator_tag
+        self.metadata: Dict[str, Any] = {"legend": legend.copy()}
+
+
+def parse_legend_text(legend_text: str) -> Tuple[Dict[str, str], Optional[str]]:
+    mapping: Dict[str, str] = {}
+    narrator_tag: Optional[str] = None
+    narrator_keywords = ["оповідач", "наратор", "диктор", "voiceover", "narrator"]
+    for raw in legend_text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        m1 = re.match(r"^(#g\d{1,2})\s*[:\-]\s*(.+)$", line)
+        m2 = re.match(r"^(.+?)\s*->\s*(#g\d{1,2})$", line)
+        if m1:
+            gid, name = m1.group(1).strip(), m1.group(2).strip()
+        elif m2:
+            name, gid = m2.group(1).strip(), m2.group(2).strip()
+        else:
+            continue
+        mapping[name] = gid
+        if narrator_tag is None and any(k in name.lower() for k in narrator_keywords):
+            narrator_tag = gid
+    return mapping, narrator_tag
+
+
+def _should_skip_rule(mod_name: str, scope: str, phase: int) -> bool:
+    # Пропускаємо document‑scope та дуже пізні фази — це робимо тут нативно
+    if scope.lower() in {"document", "doc", "docment"}:
+        return True
+    if phase >= 900:
+        return True
+    # приклад: власні реалізації
+    if mod_name.startswith("005") or "narrator_fallback" in mod_name:
+        return True
+    return False
+
+
+def load_rules(rules_path: str = RULES_DIR) -> Tuple[List[Dict[str, Any]], str]:
+    """Завантажує правила з rules_path і повертає (rules, logs)."""
+    logs: List[str] = []
+    loaded: List[Dict[str, Any]] = []
+    absdir = os.path.abspath(rules_path)
+
+    if not os.path.isdir(rules_path):
+        logs.append(f"Каталог правил '{absdir}' не існує")
+        if DEBUG_RULES_PRINT:
+            print("=== Завантажені правила (improved_logic) ===")
+            print(f"RULES_DIR: {absdir}")
+            print("Всього правил: 0")
+            print("===========================================")
+        return loaded, "\n".join(logs)
+
+    logs.append(f"Завантаження правил з: {absdir}")
+
+    try:
+        file_list = sorted(os.listdir(rules_path))
+    except Exception as e:
+        logs.append(f"✗ Не вдалося перерахувати файли у '{absdir}': {e}")
+        if DEBUG_RULES_PRINT:
+            traceback.print_exc()
+        return loaded, "\n".join(logs)
+
+    if DEBUG_RULES_PRINT:
+        print(f"[rules] каталог: {absdir}")
+        print(f"[rules] файлів знайдено: {len(file_list)} → {file_list}")
+
+    for fname in file_list:
+        if not (fname.lower().endswith(".py") and not fname.startswith("__")):
+            continue
+        mod_name = fname[:-3]
+        fpath = os.path.join(rules_path, fname)
+        try:
+            spec = importlib.util.spec_from_file_location(mod_name, fpath)
+            module = importlib.util.module_from_spec(spec)  # type: ignore
+            assert spec and spec.loader
+            spec.loader.exec_module(module)  # type: ignore
+
+            apply_func = getattr(module, "apply", None)
+            if not callable(apply_func):
+                logs.append(f"  ✗ {fname}: відсутня функція apply()")
+                continue
+
+            phase = getattr(module, "phase", getattr(apply_func, "phase", 99))
+            priority = getattr(module, "priority", getattr(apply_func, "priority", None))
+            if priority is None:
+                m = re.match(r"(\d{1,3})", mod_name)
+                priority = int(m.group(1)) if m else 100
+            scope = str(getattr(module, "scope", getattr(apply_func, "scope", "line"))).lower()
+
+            if not DEBUG_FORCE_LOAD_ALL and _should_skip_rule(mod_name, scope, int(phase)):
+                logs.append(f"  – {fname}: пропущено (scope={scope}, phase={phase})")
+                continue
+
+            loaded.append({
+                "name": mod_name,
+                "func": apply_func,
+                "phase": int(phase),
+                "priority": int(priority),
+                "scope": scope,
+            })
+            logs.append(f"  ✓ {fname}: phase={phase}, priority={priority}, scope={scope}")
+        except Exception as exc:
+            logs.append(f"  ✗ {fname}: помилка завантаження ({exc})")
+            if DEBUG_RULES_PRINT:
+                print(f"[rules] помилка імпорту {fname}: {exc}")
+                traceback.print_exc()
+
+    loaded.sort(key=lambda r: (r["phase"], r["priority"]))
+    if loaded:
+        logs.append("Порядок виконання правил:")
+        for i, r in enumerate(loaded, start=1):
+            logs.append(f"  {i}. {r['name']} (phase={r['phase']}, priority={r['priority']}, scope={r['scope']})")
+    else:
+        logs.append("Жодних правил не завантажено.")
+
+    if DEBUG_RULES_PRINT:
+        print("=== Завантажені правила (improved_logic) ===")
+        print(f"RULES_DIR: {absdir}")
+        for r in loaded:
+            print(f"  {r['name']} (phase={r['phase']}, priority={r['priority']}, scope={r['scope']})")
+        print(f"Всього правил: {len(loaded)}")
+        print("===========================================")
+
+    return loaded, "\n".join(logs)
+
+
+def apply_rules_to_text(input_text: str, rules: List[Dict[str, Any]], ctx: ProcessingContext) -> str:
+    text = input_text
+    for rule in rules:
+        fn: Callable = rule["func"]
+        scope: str = rule["scope"]
+        try:
+            if scope == "fulltext":
+                text = fn(text, ctx)  # type: ignore
+            elif scope == "paragraph":
+                paragraphs = text.split("\n\n")
+                new_paras = []
+                for p in paragraphs:
+                    try:
+                        new_paras.append(fn(p, ctx))  # type: ignore
+                    except Exception:
+                        new_paras.append(p)
+                text = "\n\n".join(new_paras)
+            else:
+                lines = text.splitlines(keepends=True)
+                new_lines: List[str] = []
+                for ln in lines:
+                    try:
+                        new_lines.append(fn(ln, ctx))  # type: ignore
+                    except Exception:
+                        new_lines.append(ln)
+                text = "".join(new_lines)
+        except Exception:
+            # не валимо увесь конвеєр через одне правило
+            traceback.print_exc()
+            continue
+    return text
+
+
+# ---- Внутрішні постпроцеси ----
+
+def _narrator_fallback(text: str, narrator_tag: str) -> str:
+    """Призначає тег оповідача для непозначених наративних рядків.
+
+    Якщо рядок не починається з тегу і не є діалогом (тире/лапки),
+    йому призначається narrator_tag:. Враховуються всі типи тире та
+    пробіли/невидимі символи.
+    """
+    lines = text.splitlines(keepends=True)
+    out: List[str] = []
+    in_block = False
+    tagged_re = re.compile(r"^\s*#g(?:\d+|\?)\s*:")
+    dialog_start = re.compile(rf"^\s*(?:[{DASHES}]|[«\"„“”'’])")
+
+    for line in lines:
+        line_norm = _normalize_ws(line)
+        stripped = line_norm.strip()
+        if not stripped or tagged_re.match(line_norm):
+            in_block = False
+            out.append(line)
+            continue
+        if dialog_start.match(stripped):
+            in_block = False
+            out.append(line)
+            continue
+        if not in_block:
+            out.append(f"{narrator_tag}: {line}")
+            in_block = True
+        else:
+            out.append(line)
+    return "".join(out)
+
+
+def _demote_g1_dialogs(text: str) -> str:
+    """Якщо після фолбеку зʼявилися #g1: перед діалогами — міняємо на #g?."""
+    pat = re.compile(rf"(?m)^(\s*)#g1\s*:\s*(?=[{DASHES}«\"„“”'’])")
+    return pat.sub(r"\1#g?: ", text)
+
+
+def _collapse_same_tags(text: str) -> str:
+    """Згортає повтори однакових тегів (#gN) у суміжних рядках (крім діалогів і #g?)."""
+    lines = text.splitlines(keepends=True)
+    out: List[str] = []
+    prev_tag: Optional[str] = None
+    tag_re = re.compile(r"^(\s*)(#g(?:\d+|\?))\s*:\s*(.*?)(\r?\n)?$", re.DOTALL)
+    is_dialog = re.compile(r"^\s*(?:[-–—]|[«\"„“”'’])")
+
+    for line in lines:
+        m = tag_re.match(line)
+        if not m:
+            if line.strip():
+                prev_tag = None
+            out.append(line)
+            continue
+        indent, tag, rest, nl = m.groups()
+        nl = nl or "\n"
+
+        if tag == "#g?":
+            out.append(line)
+            prev_tag = tag
+            continue
+        if is_dialog.match(rest.lstrip()):
+            out.append(line)
+            prev_tag = tag
+            continue
+        if prev_tag and tag.lower() == prev_tag.lower():
+            out.append(f"{indent}{rest}{nl}")
+        else:
+            out.append(line)
+            prev_tag = tag
+
+    return "".join(out)
+
+
+# ---- Публічне API ----
+
+def process_dialogs(
+    input_path: str,
+    legend_text: str = "",
+    workers: int = 1,
+    output_path: Optional[str] = None,
+) -> Tuple[str, str]:
+    logs_parts: List[str] = []
+    if not os.path.isfile(input_path):
+        return "", f"Файл не знайдено: {input_path}"
+
+    with open(input_path, "r", encoding="utf-8") as f:
+        src = f.read()
+
+    legend_map, narrator_tag = parse_legend_text(legend_text)
+    nar_tag = narrator_tag or "#g1"
+    ctx = ProcessingContext(legend=legend_map, narrator_tag=nar_tag)
+
+    rules, load_logs = load_rules(RULES_DIR)
+    logs_parts.append(load_logs)
+    if DEBUG_RULES_PRINT:
+        print(f"[improved_logic] narrator_tag={nar_tag}; rules_loaded={len(rules)}")
+
+    result = src
+    if rules:
+        logs_parts.append("Застосування правил…")
+        result = apply_rules_to_text(src, rules, ctx)
+        logs_parts.append("Правила застосовано.")
+
+    # Постпроцеси
+    result = _narrator_fallback(result, nar_tag)
+    if DEBUG_RULES_PRINT:
+        print("=== AFTER NARRATOR Fallback (head) ===")
+        print(result[:500])
+    result = _demote_g1_dialogs(result)
+    if DEBUG_RULES_PRINT:
+        print("=== AFTER DEMOTE G1 (head) ===")
+        print(result[:500])
+    result = _collapse_same_tags(result)
+
+    if output_path:
+        try:
+            with open(output_path, "w", encoding="utf-8") as f:
+                f.write(result)
+            logs_parts.append(f"Збережено у файл: {output_path}")
+        except Exception as e:
+            logs_parts.append(f"Помилка запису '{output_path}': {e}")
+
+    logs_text = "\n".join(logs_parts)
+    if ECHO_LOGS_TO_CONSOLE:
+        print("=== LOGС (improved_logic) ===")
+        print(logs_text)
+        print("=============================")
+
+    return result, logs_text
+
+
+def process_dialogs_in_memory(
+    existing_text: str,
+    legend_text: str = "",
+    workers: int = 1,
+) -> Tuple[str, str]:
+    legend_map, narrator_tag = parse_legend_text(legend_text)
+    nar_tag = narrator_tag or "#g1"
+    ctx = ProcessingContext(legend=legend_map, narrator_tag=nar_tag)
+
+    rules, load_logs = load_rules(RULES_DIR)
+    logs_parts: List[str] = [load_logs]
+
+    result = existing_text
+    if rules:
+        logs_parts.append("Застосування правил…")
+        result = apply_rules_to_text(existing_text, rules, ctx)
+        logs_parts.append("Правила застосовано.")
+
+    result = _narrator_fallback(result, nar_tag)
+    result = _demote_g1_dialogs(result)
+    result = _collapse_same_tags(result)
+
+    logs_text = "\n".join(logs_parts)
+    if ECHO_LOGS_TO_CONSOLE:
+        print("=== LOGС (improved_logic) ===")
+        print(logs_text)
+        print("=============================")
+
+    return result, logs_text
+
+
+if __name__ == "__main__":
+    default_in = os.path.join(os.path.dirname(__file__), "Dialog_test.txt")
+    if os.path.exists(default_in):
+        txt, lg = process_dialogs(default_in, legend_text="")
+        print("=== RESULT (head) ===")
+        print(txt[:1200])
+        print("…")

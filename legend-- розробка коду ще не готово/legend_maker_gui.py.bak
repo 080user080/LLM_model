@@ -1,0 +1,361 @@
+# -*- coding: utf-8 -*-
+# legend_zeroshot_gui.py — Легенда #gN (GUI, MPNet + DeBERTa-XNLI, авто-копіювання, лог у консоль)
+# Залежності: pip install sentence-transformers transformers torch
+# Моделі: sentence-transformers/paraphrase-multilingual-mpnet-base-v2, MoritzLaurer/mDeBERTa-v3-base-mnli-xnli
+
+import re, os
+from collections import Counter, defaultdict
+from dataclasses import dataclass, field
+from typing import List, Dict, Tuple, Optional, Set
+
+DEBUG = True  # лог у консоль
+
+UKR_UP = r"A-ZА-ЯЇІЄҐ"
+WORD   = rf"[{UKR_UP}][{UKR_UP}a-zа-яїієґ’'ʼ\-]+"
+CAP_NAME = rf"{WORD}(?:\s+{WORD}){{0,2}}"
+
+SAY_M = r"(сказав|відповів|крикнув|вигукнув|прошепотів|буркнув|зазначив|погодився|відказав|мовив|звернувся|спитав|запитав|промовив|процедив|додав|гукнув)"
+SAY_F = r"(сказала|відповіла|крикнула|вигукнула|прошепотіла|буркнула|зазначила|погодилась|відказала|мовила|звернулась|спитала|запитала|промовила|процедила|додала|гукнула)"
+SAY   = rf"(?:{SAY_M}|{SAY_F})"
+
+ROLE_TOKENS = {
+    "шаман":"шаман","ватажок":"ватажок","старійшина":"старійшина","старший":"старший",
+    "дід":"дід","дідо":"дід","мати":"мати","жінка":"жінка","чоловік":"чоловік",
+    "хлопчик":"хлопчик","дівчинка":"дівчинка","дитина":"дитина","оповідач":"оповідач","наратив":"наратив",
+}
+
+ALIAS_MAP = {"діду":"Дідо","дідусю":"Дідо","дідусь":"Дідо","онучка":"Правнучка","сонечко":"Правнучка"}
+
+STOP_CAP = {"Пролог","Розділ","Глава","Зима","Весна","Бог","Богу","Боже","Богом","Аллах","Аллахом"}
+STOP_ANY_LOWER = {
+    "він","вона","вони","ми","я","ти","ви","його","її","їх","мене","тобі","мені",
+    "та","і","й","але","або","чи","тож","бо","що","щоб","як","коли","де","навіщо","тому","навіть","тільки","от","так","ні",
+    "про","на","до","за","по","від","без","між","перед","через","після","при","над","під","це","цей","ця","ці","той","та",
+    # узагальнені неабстрактні, але не-персони:
+    "людей","людина","людини","люди","людям","людиною","голос","серце","поцілунок","поцілунком","руками","хто","той","наш","вождь"
+}
+DET_FIRST = {"цей","ця","це","ці","той","та","те","ті","мій","твій","наш","ваш","кожен","усі","всі","інший","такий","який"}
+
+PAT_A = re.compile(rf"(?P<name>{CAP_NAME})\s*[,;:]?\s+(?:—|-)?\s*{SAY}\b", re.IGNORECASE)
+PAT_B = re.compile(rf"{SAY}\s+(?P<name>{CAP_NAME})\b", re.IGNORECASE)
+QUOTE_CHARS = "\"'«»„”“”"
+PAT_IN_QUOTE_NAME = re.compile(rf"[{re.escape(QUOTE_CHARS)}\-—–]\s*[^\.!?]+?\b(?P<name>{CAP_NAME})\b")
+
+@dataclass
+class PersonStat:
+    canonical: str
+    aliases: Set[str] = field(default_factory=set)
+    first_pos: int = 10**12
+    hits: int = 0
+    m_votes: int = 0
+    f_votes: int = 0
+    roles: Set[str] = field(default_factory=set)
+    def gender(self)->str:
+        if self.m_votes>self.f_votes and self.m_votes>0: return "M"
+        if self.f_votes>self.m_votes and self.f_votes>0: return "F"
+        return "U"
+
+def log(*a):
+    if DEBUG: print(*a, flush=True)
+
+def norm_space(s:str)->str: return re.sub(r"[ \t\u00A0]+"," ",s).strip()
+
+def to_canon(token:str)->str:
+    t = token.strip(",:;.!?—-–()[]{}«»\"'’").lower()
+    if not t: return ""
+    if t in ALIAS_MAP: return ALIAS_MAP[t]
+    if re.fullmatch(r".+у", t) and t[:-1]+"о" not in STOP_CAP:
+        guess = t[:-1]+"о"
+        if re.fullmatch(rf"[a-zа-яїієґ'’\-]+", guess): return guess.title()
+    return t.title()
+
+def is_cap_name_like(token:str)->bool:
+    if token in STOP_CAP: return False
+    parts = token.split()
+    low = token.lower()
+    if len(parts)==1 and (low in STOP_ANY_LOWER or len(token)<=2): return False
+    # детермінативи на початку — відкидаємо (Наш Вождь, Цей Хлопчик)
+    if parts and parts[0].lower() in DET_FIRST: return False
+    for p in parts:
+        if not re.match(rf"^[{UKR_UP}]", p): return False
+        if p.lower() in STOP_ANY_LOWER: return False
+    return bool(re.fullmatch(rf"{CAP_NAME}", token))
+
+def around(text:str, s:int, e:int, w:int=80)->str:
+    a=max(0,s-w); b=min(len(text), e+w); return text[a:b]
+
+# === REPLACE: секція "ML" цілком ============================================
+
+# --------------------------- ML: MPNet (batched) --------------------------- #GPT
+_model = None
+_pos_emb = None
+_neg_emb = None
+_emb_cache: dict[str, float] = {}  #GPT: кеш score(token)->float
+
+MPNET_NAME = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
+MPNET_BATCH = 96  #GPT: батч розмір для CPU
+
+def get_model():
+    global _model, _pos_emb, _neg_emb
+    if _model is None:
+        from sentence_transformers import SentenceTransformer
+        _model = SentenceTransformer(MPNET_NAME)
+        pos_prompts = [
+            "це ім'я людини","це особове ім'я","це ім'я персонажа",
+            "це звертання до людини","це людське ім'я","це прізвище людини",
+        ]
+        neg_prompts = [
+            "це дієслово","це службове слово","це прийменник",
+            "це займенник","це прислівник","це абстрактне слово",
+            "це загальна назва","це назва божества",
+        ]
+        _pos_emb = _model.encode(pos_prompts, normalize_embeddings=True, convert_to_numpy=True)
+        _neg_emb = _model.encode(neg_prompts, normalize_embeddings=True, convert_to_numpy=True)
+    return _model, _pos_emb, _neg_emb
+
+def mpnet_scores(tokens: list[str]) -> dict[str, float]:
+    """Повертає score для кожного токена (pos_max - neg_max). Кешує результати."""
+    import numpy as np
+    from numpy import dot
+
+    need = [t for t in tokens if t not in _emb_cache]
+    if need:
+        model, pos_emb, neg_emb = get_model()
+        # батч-кодування відсутніх
+        vecs = model.encode(need, normalize_embeddings=True, convert_to_numpy=True, batch_size=MPNET_BATCH, show_progress_bar=False)
+        for t, v in zip(need, vecs):
+            score = float(max(dot(v, pos_emb.T)) - max(dot(v, neg_emb.T)))
+            _emb_cache[t] = score
+    return {t: _emb_cache[t] for t in tokens}
+
+def accept_by_score(score: float, in_dialog_ctx: bool, is_fallback: bool) -> bool:
+    # Пороги відфільтровані практикою: діалогові хіти лояльніші, fallback суворіший
+    if is_fallback:
+        return score >= 0.35
+    base = 0.20
+    if in_dialog_ctx:
+        base -= 0.08  # бонус у контексті мовлення/реплік
+    return score >= base
+
+
+# === REPLACE: функція harvest цілком ========================================
+
+def harvest(text: str) -> Dict[str, PersonStat]:
+    stats: Dict[str, PersonStat] = {}
+
+    # 1) Збираємо кандидатів без ML
+    candidates: list[tuple[str,int,Optional[str],str,bool]] = []  # (name,pos,gender,ctx,in_dialog)
+    def add(name_str: str, pos: int, gender_vote: Optional[str], ctx: str, in_dialog: bool):
+        canon = to_canon(name_str)
+        if not canon or not is_cap_name_like(canon):
+            return
+        candidates.append((canon, pos, gender_vote, ctx, in_dialog))
+
+    for m in PAT_A.finditer(text):
+        nm = norm_space(m.group("name"))
+        g = "M" if re.search(SAY_M, m.group(0), re.IGNORECASE) else ("F" if re.search(SAY_F, m.group(0), re.IGNORECASE) else None)
+        add(nm, m.start(), g, around(text, m.start(), m.end()), True)
+
+    for m in PAT_B.finditer(text):
+        nm = norm_space(m.group("name"))
+        g = "M" if re.search(SAY_M, m.group(0), re.IGNORECASE) else ("F" if re.search(SAY_F, m.group(0), re.IGNORECASE) else None)
+        add(nm, m.start(), g, around(text, m.start(), m.end()), True)
+
+    for m in PAT_IN_QUOTE_NAME.finditer(text):
+        nm = norm_space(m.group("name"))
+        add(nm, m.start(), None, around(text, m.start(), m.end()), True)
+
+    # Fallback: тільки багатослівні/дефісні з freq≥3 і не лише на початку речень
+    cap_tokens = re.findall(rf"\b{CAP_NAME}\b", text)
+    freq = Counter([norm_space(t) for t in cap_tokens if is_cap_name_like(norm_space(t)) and norm_space(t) not in STOP_CAP])
+    def sent_start(i: int) -> bool:
+        pre = text[max(0, i-2):i]
+        return bool(re.search(r"[\.!\?]\s*$", pre))
+    for nm, cnt in freq.items():
+        if cnt < 3: 
+            continue
+        if not ((" " in nm) or ("-" in nm)):
+            continue
+        ok_pos = None
+        for m in re.finditer(rf"\b{re.escape(nm)}\b", text):
+            if not sent_start(m.start()):
+                ok_pos = m.start(); break
+        if ok_pos is None:
+            continue
+        candidates.append((nm, ok_pos, None, around(text, ok_pos, ok_pos+len(nm)), False))
+
+    # 2) Оцінюємо ML-скором батчем
+    uniq_tokens = sorted({c[0] for c in candidates})
+    scores = mpnet_scores(uniq_tokens)
+
+    # 3) Приймаємо/відкидаємо та будуємо статистику
+    for canon, pos, gvote, ctx, in_dialog in candidates:
+        sc = scores.get(canon, -1.0)
+        ok = accept_by_score(sc, in_dialog_ctx=in_dialog, is_fallback=not in_dialog)
+        if not ok:
+            continue
+        st = stats.get(canon)
+        if not st:
+            st = PersonStat(canonical=canon)
+            stats[canon] = st
+        # зберігаємо сирий alias для інфо
+        st.aliases.add(canon)
+        st.hits += 1
+        if pos < st.first_pos:
+            st.first_pos = pos
+        if gvote == "M":
+            st.m_votes += 1
+        elif gvote == "F":
+            st.f_votes += 1
+        ctx_l = ctx.lower()
+        for k, role in ROLE_TOKENS.items():
+            if re.search(rf"\b{k}\b", ctx_l):
+                st.roles.add(role)
+
+    # 4) Злиття простих аліасів
+    merge_simples(stats)
+
+    if DEBUG:
+        print(f"[harvest] candidates={len(candidates)} accepted={len(stats)}", flush=True)
+    return stats
+
+
+    # Fallback D: тільки багатослівні/з дефісом + freq≥3 + не лише sentence-start
+    cap_tokens = re.findall(rf"\b{CAP_NAME}\b", text)
+    def sent_start(i:int)->bool:
+        pre = text[max(0,i-2):i]
+        return bool(re.search(r"[\.!\?]\s*$", pre))
+    freq = Counter([norm_space(t) for t in cap_tokens if is_cap_name_like(norm_space(t)) and norm_space(t) not in STOP_CAP])
+    for nm,cnt in freq.items():
+        if cnt < 3: continue
+        multi_like = (" " in nm) or ("-" in nm)
+        if not multi_like: continue
+        ok_pos = None
+        for m in re.finditer(rf"\b{re.escape(nm)}\b", text):
+            if not sent_start(m.start()):
+                ok_pos = m.start(); break
+        if ok_pos is None: continue
+        touch(nm, ok_pos, None, around(text,ok_pos,ok_pos+len(nm)), "D")
+
+    merge_simples(stats)
+    if DEBUG:
+        log(f"[harvest] accepted={len(stats)}")
+        for k in sorted(stats,key=lambda x: stats[x].first_pos)[:20]:
+            st=stats[k]; log(" +",k,"hits=",st.hits,"gender=",st.gender(),"roles=",",".join(sorted(st.roles)) if st.roles else "-")
+    return stats
+
+def merge_simples(stats:Dict[str,'PersonStat'])->None:
+    by_first = defaultdict(list)
+    for k in list(stats.keys()):
+        first = k.split()[0].split("-")[0]
+        by_first[first].append(k)
+    for group in by_first.values():
+        if len(group)<2: continue
+        longers = sorted(group, key=lambda s:(-len(s),s))
+        keep = longers[0]
+        for other in group[1:]:
+            if other==keep or other not in stats or keep not in stats: continue
+            a,b = stats[keep], stats[other]
+            if keep.startswith(other) or other in keep or "-" in keep:
+                a.aliases |= b.aliases; a.hits += b.hits
+                a.first_pos = min(a.first_pos,b.first_pos)
+                a.m_votes += b.m_votes; a.f_votes += b.f_votes
+                a.roles |= b.roles
+                del stats[other]
+
+def assign_tags(stats:Dict[str,'PersonStat'], top:int=24, min_freq:int=1)->List['PersonStat']:
+    persons = [p for p in stats.values() if p.hits>=min_freq]
+    persons.sort(key=lambda p:(p.first_pos,-p.hits,p.canonical))
+    return persons[:top]
+
+def format_legend(persons:List['PersonStat'])->str:
+    lines=[]
+    for i,p in enumerate(persons,1):
+        roles = ", ".join(sorted(p.roles)) if p.roles else ""
+        g = p.gender()
+        lines.append(f"#g{i} — {p.canonical} ({g}" + (f", {roles}" if roles else "") + ")")
+    return "\n".join(lines)+("\n" if lines else "")
+
+def read_text(path:str)->str:
+    with open(path,"r",encoding="utf-8") as f: txt=f.read()
+    txt = txt.replace("\u2014","—").replace("\u2013","–").replace("\u00A0"," ")
+    log(f"[read] {os.path.basename(path)} chars={len(txt)}"); return txt
+
+def default_out_path(in_path:str)->str:
+    b,_ = os.path.splitext(in_path); return b+"_legend.txt"
+
+def write_text(path:str, content:str)->None:
+    with open(path,"w",encoding="utf-8",newline="\n") as f: f.write(content)
+    log(f"[write] {path}")
+
+def build_legend(in_path:str, out_path:Optional[str], top:int, min_freq:int)->Tuple[str,str]:
+    text = read_text(in_path)
+    stats = harvest(text)
+    persons = assign_tags(stats, top=top, min_freq=min_freq)
+    legend = format_legend(persons)
+    out_final = out_path or default_out_path(in_path)
+    write_text(out_final, legend)
+    log(f"[result] persons={len(persons)}")
+    for i,p in enumerate(persons,1):
+        log(f"  #{i:02d} {p.canonical} hits={p.hits} gender={p.gender()} roles={','.join(sorted(p.roles)) if p.roles else '-'}")
+    return legend, out_final
+
+# ---------------- GUI ----------------
+def launch_gui():
+    import tkinter as tk
+    from tkinter import ttk, filedialog, messagebox
+    class App(tk.Tk):
+        def __init__(self):
+            super().__init__()
+            self.title("Легенда #gN — MPNet+XNLI"); self.geometry("780x540"); self.configure(bg="#1e1e1e")
+            self._ui()
+        def _ui(self):
+            pad, fg, bg = 8, "#e6e6e6", "#1e1e1e"
+            frm = tk.Frame(self,bg=bg); frm.pack(fill="both",expand=True,padx=pad,pady=pad)
+            r1=tk.Frame(frm,bg=bg); r1.pack(fill="x",pady=4)
+            tk.Label(r1,text="Вхідний TXT:",fg=fg,bg=bg).pack(side="left")
+            self.in_var=tk.StringVar(); tk.Entry(r1,textvariable=self.in_var,bg="#2b2b2b",fg=fg,insertbackground=fg).pack(side="left",fill="x",expand=True,padx=6)
+            ttk.Button(r1,text="Вибрати…",command=self._choose_in).pack(side="left")
+            r2=tk.Frame(frm,bg=bg); r2.pack(fill="x",pady=4)
+            tk.Label(r2,text="Вихідний:",fg=fg,bg=bg).pack(side="left")
+            self.out_var=tk.StringVar(); tk.Entry(r2,textvariable=self.out_var,bg="#2b2b2b",fg=fg,insertbackground=fg).pack(side="left",fill="x",expand=True,padx=6)
+            ttk.Button(r2,text="…",width=3,command=self._choose_out).pack(side="left")
+            r3=tk.Frame(frm,bg=bg); r3.pack(fill="x",pady=4)
+            tk.Label(r3,text="top:",fg=fg,bg=bg).pack(side="left"); self.top_var=tk.IntVar(value=24)
+            tk.Entry(r3,textvariable=self.top_var,width=6,bg="#2b2b2b",fg=fg,insertbackground=fg).pack(side="left",padx=6)
+            tk.Label(r3,text="min_freq:",fg=fg,bg=bg).pack(side="left"); self.minfreq_var=tk.IntVar(value=1)
+            tk.Entry(r3,textvariable=self.minfreq_var,width=6,bg="#2b2b2b",fg=fg,insertbackground=fg).pack(side="left",padx=6)
+            ttk.Button(r3,text="Старт",command=self._start).pack(side="right")
+            self.txt=tk.Text(frm,height=18,bg="#111",fg=fg,insertbackground=fg,wrap="word"); self.txt.pack(fill="both",expand=True,pady=6)
+            # автокопіювання виділення
+            self.txt.bind("<ButtonRelease-1>", self._auto_copy)
+            self.txt.bind("<KeyRelease>", self._auto_copy)
+        def _choose_in(self):
+            p=filedialog.askopenfilename(title="Оберіть TXT",filetypes=[("TXT","*.txt"),("Усі файли","*.*")])
+            if p: self.in_var.set(p);  self.out_var.set(self.out_var.get() or default_out_path(p))
+        def _choose_out(self):
+            init=self.out_var.get() or (default_out_path(self.in_var.get()) if self.in_var.get() else "")
+            p=filedialog.asksaveasfilename(title="Зберегти легенду",defaultextension=".txt",
+                                           initialfile=os.path.basename(init),
+                                           initialdir=os.path.dirname(init) if init else None,
+                                           filetypes=[("TXT","*.txt")])
+            if p: self.out_var.set(p)
+        def _auto_copy(self, _=None):
+            import tkinter as tk
+            try: sel=self.txt.get("sel.first","sel.last")
+            except tk.TclError: return
+            if sel: self.clipboard_clear(); self.clipboard_append(sel)
+        def _start(self):
+            p=self.in_var.get().strip()
+            if not p or not os.path.isfile(p): messagebox.showerror("Помилка","Вкажіть коректний шлях до TXT."); return
+            outp=self.out_var.get().strip() or default_out_path(p)
+            try:
+                legend, out_final = build_legend(p, outp, self.top_var.get(), self.minfreq_var.get())
+                self.txt.delete("1.0","end"); self.txt.insert("1.0", legend if legend else "[Порожньо]")
+                self.out_var.set(out_final)
+            except Exception as e:
+                messagebox.showerror("Помилка", str(e))
+    App().mainloop()
+
+if __name__ == "__main__":
+    launch_gui()

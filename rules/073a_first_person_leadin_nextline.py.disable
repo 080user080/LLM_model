@@ -1,0 +1,52 @@
+# 073a_first_person_sameline.py — Я кажу: #g?: — … → tag = first_person_gid (v3)
+# -*- coding: utf-8 -*-
+import re
+
+PHASE, PRIORITY, SCOPE, NAME = 73, 6, "fulltext", "first_person_leadin_sameline_v3"
+
+NBSP = "\u00A0"
+DASHES = "-\u2012\u2013\u2014\u2015"
+IS_DLG = re.compile(rf"^\s*(?:[{re.escape(DASHES)}]|[«\"„“”'’])")
+
+FP_NOW = r"(?:кажу|відповідаю|питаю|запитую|кричу|шепочу|бурчу|мовлю|промовляю|пояснюю|додаю|зазначаю|прошу|гукаю|відказую)"
+FP_PM  = r"(?:сказав|відповів|запитав|крикнув|вигукнув|прошепотів|буркнув|мовив|промовив|пояснив|гукнув|відказав)"
+FP_PF  = r"(?:сказала|відповіла|запитала|крикнула|вигукнула|прошепотіла|буркнула|промовила|пояснила|гукнула|відказала)"
+LEADIN = rf"(?:я\s+{FP_NOW}|{FP_NOW}\s+я|{FP_PM}\s+я|{FP_PF}\s+я)\s*:"
+
+PAT = re.compile(
+    rf"^(?P<pre>\s*.*?(?:{LEADIN})\s*)#g(?P<gid>\d+|\?)\s*:\s*(?P<body>.*)$",
+    re.IGNORECASE | re.DOTALL
+)
+
+def _first_gid(ctx):
+    return (getattr(ctx, "metadata", {}) or {}).get("hints", {}).get("first_person_gid")
+
+def _is_dialog_body(b: str) -> bool:
+    return bool(IS_DLG.match((b or "").replace(NBSP, " ").lstrip()))
+
+def apply(text: str, ctx):
+    fp = _first_gid(ctx)
+    if not fp:
+        return text
+
+    out, retag = [], 0
+    for ln in text.splitlines(keepends=True):
+        core = ln.rstrip("\r\n")
+        eol  = ln[len(core):]
+        m = PAT.match(core)
+        if not m:
+            out.append(ln); continue
+        gd = m.groupdict()
+        pre, body = gd.get("pre",""), gd.get("body","")
+        if not _is_dialog_body(body):
+            out.append(ln); continue
+        out.append(f"{pre}{fp}: {body}{eol}")
+        retag += 1
+
+    try:
+        ctx.logs.append(f"[073a sameline v3] retagged:{retag}")
+    except Exception:
+        pass
+    return "".join(out)
+
+apply.phase, apply.priority, apply.scope, apply.name = PHASE, PRIORITY, SCOPE, NAME

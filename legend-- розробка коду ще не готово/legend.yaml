@@ -1,0 +1,145 @@
+g0: {name: "Невідомий", role: "fallback", aliases: []}
+g1:
+  name: "Лоло"
+  gender: "?"
+  role: "?"
+  aliases: []
+  voice: "#voice_g1"
+  freq: 57
+g2:
+  name: "Уро"
+  gender: "?"
+  role: "?"
+  aliases: []
+  voice: "#voice_g2"
+  freq: 17
+g3:
+  name: "Таша"
+  gender: "?"
+  role: "?"
+  aliases: []
+  voice: "#voice_g3"
+  freq: 10
+g4:
+  name: "Аль"
+  gender: "?"
+  role: "?"
+  aliases: []
+  voice: "#voice_g4"
+  freq: 9
+g5:
+  name: "Ліло"
+  gender: "?"
+  role: "?"
+  aliases: []
+  voice: "#voice_g5"
+  freq: 8
+g6:
+  name: "Утаре"
+  gender: "?"
+  role: "?"
+  aliases: []
+  voice: "#voice_g6"
+  freq: 8
+g7:
+  name: "Лім"
+  gender: "?"
+  role: "?"
+  aliases: []
+  voice: "#voice_g7"
+  freq: 7
+g8:
+  name: "Тун"
+  gender: "?"
+  role: "?"
+  aliases: []
+  voice: "#voice_g8"
+  freq: 7
+g9:
+  name: "Яххе"
+  gender: "?"
+  role: "?"
+  aliases: []
+  voice: "#voice_g9"
+  freq: 7
+g10:
+  name: "Ахой"
+  gender: "?"
+  role: "?"
+  aliases: []
+  voice: "#voice_g10"
+  freq: 6
+g11:
+  name: "Діду"
+  gender: "?"
+  role: "?"
+  aliases: []
+  voice: "#voice_g11"
+  freq: 6
+g12:
+  name: "Лют"
+  gender: "?"
+  role: "?"
+  aliases: []
+  voice: "#voice_g12"
+  freq: 6
+g13:
+  name: "йому"
+  gender: "?"
+  role: "?"
+  aliases: []
+  voice: "#voice_g13"
+  freq: 6
+g14:
+  name: "мені"
+  gender: "?"
+  role: "?"
+  aliases: []
+  voice: "#voice_g14"
+  freq: 6
+g15:
+  name: "її"
+  gender: "?"
+  role: "?"
+  aliases: []
+  voice: "#voice_g15"
+  freq: 6
+g16:
+  name: "Тошо"
+  gender: "?"
+  role: "?"
+  aliases: []
+  voice: "#voice_g16"
+  freq: 5
+g17:
+  name: "Ігорьку"
+  gender: "?"
+  role: "?"
+  aliases: []
+  voice: "#voice_g17"
+  freq: 4
+g18:
+  name: "Вийди"
+  gender: "?"
+  role: "?"
+  aliases: []
+  voice: "#voice_g18"
+  freq: 4
+g19:
+  name: "Дякую"
+  gender: "?"
+  role: "?"
+  aliases: []
+  voice: "#voice_g19"
+  freq: 4
+g20:
+  name: "Жінка"
+  gender: "?"
+  role: "?"
+  aliases: []
+  voice: "#voice_g20"
+  freq: 4
+g98: {name: "Авторські вставки", role: "meta", aliases: []}
+g99: {name: "Натовп", role: "group", aliases: []}
+version: 1
+generated_at: "2025-09-19T18:59:03.026757Z"

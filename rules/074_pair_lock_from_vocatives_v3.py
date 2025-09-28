@@ -1,0 +1,224 @@
+﻿# -*- coding: utf-8 -*-
+"""
+074_pair_lock_from_vocatives_v3.py  (v3.3)
+Безпечне ретегування #g? у двопартійні діалоги з пріоритетом пари (вокативи + останній явний спікер).
+Зміни v3.3:
+  • Спершу пробуємо зібрати пару; якщо пари нема — тоді 1-ша особа.
+  • Усередині пари 1-ша особа спрацьовує лише якщо first_person_gid ∈ pair.
+  • Враховуємо явних спікерів у вікні (сильний сигнал) і адресатів/лід-іни (слабші).
+  • Не рвемо блок на #g1 — пропускаємо наратив усередині діалогової секції.
+  • Розширено I_VERB (вкл. “хочу”, “сплю”), вокатив ловить також “…”, “.” наприкінці.
+"""
+import re, unicodedata
+
+PHASE, PRIORITY, SCOPE, NAME = 74, 6, "fulltext", "pair_lock_from_vocatives_v3"
+
+NBSP = "\u00A0"
+TRIM = ".,:;!?»«”“’'—–-()[]{}"
+DASH = r"\-\u2012\u2013\u2014\u2015"
+ELLIPSIS = "\u2026"
+DIALOG = re.compile(rf"^\s*(?:[{DASH}]|[«\"„“”'’])")
+TAG_ANY = re.compile(r"^(\s*)#g(\d+|\?)\s*:\s*(.*)$")
+
+LEADIN = re.compile(
+    r"(?:сказ(ав|ала|али)|відпов(ів|іла|іли)|крик(нув|нула|нули)|мовив|промовила|звернувся|шепотів)\s+([A-ZА-ЯЇІЄҐ][\w’'\-]+)"
+    r"|([A-ZА-ЯЇІЄҐ][\w’'\-]+)\s+(?:сказ(ав|ала|али)|відпов(ів|іла|іли)|крик(нув|нула|нули)|мовив|промовила|звернулась|шепотіла)",
+    re.IGNORECASE
+)
+
+I_PRON = re.compile(r"\b(я|мені|мене|мною|мій|моє|мої|в мені|у мені)\b", re.IGNORECASE)
+I_VERB = re.compile(
+    r"\b(кажу|говорю|відповідаю|питаю|прошу|дякую|зізнаюся|шепочу|бурмочу|вигукую|кричу|показую|звертаюся|стримуюсь|охаю|хочу|сплю)\b",
+    re.IGNORECASE,
+)
+WORD = re.compile(r"[A-ZА-ЯЇІЄҐ][\w’'\-]+")
+
+def _nfd_strip(s: str) -> str:
+    return "".join(ch for ch in unicodedata.normalize("NFD", s) if not unicodedata.combining(ch))
+
+def _norm(s: str) -> str:
+    return _nfd_strip(s).casefold().strip(TRIM + " ")
+
+def _alias_map(ctx):
+    legend = getattr(ctx, "metadata", {}).get("legend", {}) or {}
+    amap = {}
+    for raw, gid in legend.items():
+        base = re.split(r"[—–]|[\(,]", str(raw), 1)[0].strip() or str(raw)
+        for cand in {str(raw).strip(), base, base.split()[0]}:
+            if cand:
+                amap.setdefault(_norm(cand), str(gid))
+    return amap
+
+def _addressees(body: str, amap: dict):
+    low = _norm(body)
+    hits = []
+    for name, gid in amap.items():
+        if len(name) < 2:
+            continue
+        # Підставляємо ELLIPSIS напряму у вираз без використання невизначеної змінної
+        # «ell» у форматі. Символ трикрапки \u2026 входить до класу символів поруч із
+        # крапкою. Безпечніше явно вказати його в регулярному виразі.
+        start_pat = re.compile(
+            rf"^(?:[{DASH}]\s*)?(?:[«\"„“”'’])?\s*{re.escape(name)}(?=[ ,!?:;\.\u2026]|$)"
+        )
+        any_pat = re.compile(
+            rf"\b{re.escape(name)}\b(?=[ ,!?:;\.\u2026]|$)"
+        )
+        if start_pat.search(low) or any_pat.search(low):
+            if gid not in hits:
+                hits.append(gid)
+    return hits
+
+def _dialog_gid_of_line(line: str):
+    m = TAG_ANY.match(line.rstrip("\r\n"))
+    if not m: return None, None, None
+    indent, gid, body = m.groups()
+    body_norm = body.replace(NBSP, " ").lstrip()
+    if not DIALOG.match(body_norm): return None, None, None
+    return indent, f"#g{gid}", body
+
+def _last_speaker(lines, i):
+    for k in range(i - 1, -1, -1):
+        ind, gid, body = _dialog_gid_of_line(lines[k])
+        if gid and gid not in ("#g?", "#g1"):
+            return gid
+    return None
+
+def _guess_pair(lines, i, amap):
+    counter = {}
+    def bump(g, w=1):
+        if g and g != "#g1":
+            counter[g] = counter.get(g, 0) + w
+
+    lo, hi = max(0, i-12), min(len(lines), i+13)
+    for k in range(lo, hi):
+        ind, gid, body = _dialog_gid_of_line(lines[k])
+        if gid:
+            if gid != "#g?":
+                bump(gid, w=2)        # явний спікер = сильний сигнал
+            for g in _addressees(body, amap):
+                bump(g, w=1)
+            continue
+        s = lines[k]
+        if LEADIN.search(s):
+            for name in WORD.findall(s[:160]):
+                g = amap.get(_norm(name))
+                if g:
+                    bump(g, w=1); break
+
+    cand = sorted(counter.items(), key=lambda kv: kv[1], reverse=True)
+    pair = []
+    for g, _ in cand:
+        if g not in pair:
+            pair.append(g)
+        if len(pair) == 2: break
+    return tuple(pair) if len(pair) == 2 else None
+
+def _fallback_pair_with_prev(lines, i, prev):
+    if not prev:
+        return None
+    for k in range(i - 1, -1, -1):
+        m = TAG_ANY.match(lines[k].rstrip("\r\n"))
+        if not m:
+            continue
+        gid = f"#g{m.group(2)}"
+        if gid not in ("#g?", "#g1") and gid != prev:
+            return (prev, gid)
+    return None
+
+def _split_eol(s: str):
+    core = s.rstrip("\r\n")
+    return core, s[len(core):]  # (core, eol)
+
+def apply(text, ctx):
+    lines = text.splitlines(keepends=True)
+    meta  = getattr(ctx, "metadata", {}) or {}
+    amap  = _alias_map(ctx)
+    first_person_gid = (meta.get('hints') or {}).get('first_person_gid')  # може бути None
+
+    i = 0
+    while i < len(lines):
+        core_i, eol_i = _split_eol(lines[i])
+        m_i = TAG_ANY.match(core_i)
+        if not m_i:
+            i += 1; continue
+        ind, gid_raw, body = m_i.groups()
+        gid = f"#g{gid_raw}"
+        if gid != "#g?":
+            i += 1; continue
+
+        # 0) зібрати пару (враховуючи останнього явного + вокативи/лід-іни)
+        pair = _guess_pair(lines, i, amap)
+        vocs = _addressees(body, amap)
+        prev = _last_speaker(lines, i)
+        if not pair and len(vocs) == 1 and prev and prev != vocs[0]:
+            pair = (prev, vocs[0])
+        if not pair:
+            pair = _fallback_pair_with_prev(lines, i, prev)
+
+        low = body.replace(NBSP, " ").lower()
+
+        # 1) якщо пари НІ — дозволяємо 1-шу особу (лише коли hint заданий)
+        if not pair and first_person_gid and (I_PRON.search(low) or I_VERB.search(low)):
+            lines[i] = f"{ind}{first_person_gid}: {body}"
+            i += 1; continue
+
+        if not pair:
+            i += 1; continue
+
+        # стартове очікування: інший від prev, якщо prev ∈ pair
+        expect = pair[0]
+        if prev in pair:
+            expect = pair[1] if prev == pair[0] else pair[0]
+
+        j = i
+        while j < len(lines):
+            core2, eol2 = _split_eol(lines[j])
+            m2 = TAG_ANY.match(core2)
+            if not m2:
+                # пусті рядки всередині блоку не розривають його
+                if not core2.strip():
+                    j += 1; continue
+                # наратив #g1 — пропускаємо
+                if re.match(r"^\s*#g1\s*:\s*", core2):
+                    j += 1; continue
+                break  # інший текст → кінець блоку
+            ind2, gid2_raw, b2 = m2.groups()
+            g2 = f"#g{gid2_raw}"
+
+            low2 = b2.replace(NBSP, " ").lower()
+            vocs2 = _addressees(b2, amap)
+
+            # Vocative → спікер = «не адресат», якщо адресат ∈ pair
+            only = [v for v in vocs2 if v in pair]
+            if len(only) == 1:
+                speaker = pair[1] if only[0] == pair[0] else pair[0]
+                lines[j] = f"{ind2}{speaker}: {b2}{eol2}"
+                expect = pair[1] if speaker == pair[0] else pair[0]
+                j += 1; continue
+
+            # 1-ша особа усередині пари → тільки якщо hint заданий і входить у пару
+            if first_person_gid and (I_PRON.search(low2) or I_VERB.search(low2)) and first_person_gid in pair:
+                lines[j] = f"{ind2}{first_person_gid}: {b2}{eol2}"
+                expect = pair[1] if first_person_gid == pair[0] else pair[0]
+                j += 1; continue
+
+            if g2 == "#g?":
+                lines[j] = f"{ind2}{expect}: {b2}{eol2}"
+                expect = pair[1] if expect == pair[0] else pair[0]
+                j += 1; continue
+
+            if g2 in pair:
+                expect = pair[1] if g2 == pair[0] else pair[0]
+                j += 1; continue
+
+            # Сторонній тег у блоці без звертання → очікуваний
+            lines[j] = f"{ind2}{expect}: {b2}{eol2}"
+            expect = pair[1] if expect == pair[0] else pair[0]
+            j += 1
+
+        i = j
+
+    return "".join(lines)
+
+apply.phase, apply.priority, apply.scope, apply.name = PHASE, PRIORITY, SCOPE, NAME
