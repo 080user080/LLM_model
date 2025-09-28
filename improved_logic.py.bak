@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
 improved_logic.py — основна логіка розстановки діалогів.
 • Підтримує підвантаження правил з ./rules
@@ -245,7 +245,7 @@ def _collapse_same_tags(text: str) -> str:
     lines = text.splitlines(keepends=True)
     out: List[str] = []
     prev_tag: Optional[str] = None
-    tag_re = re.compile(r"^(\s*)(#g(?:\d+|\?))\s*:(\s*)(.*?)(\r?\n)?$", re.DOTALL)
+    tag_re = re.compile(r"^(\s*)(#g(?:\d+|\?))\s*:\s*(.*?)(\r?\n)?$", re.DOTALL)
     is_dialog = re.compile(r"^\s*(?:[-–—]|[«\"„“”'’])")
 
     for line in lines:
@@ -255,7 +255,8 @@ def _collapse_same_tags(text: str) -> str:
                 prev_tag = None
             out.append(line)
             continue
-        indent, tag, post_ws, rest, nl = m.groups()
+        indent, tag, rest, nl = m.groups()
+        nl = nl or "\n"
 
         if tag == "#g?":
             out.append(line)
@@ -266,7 +267,7 @@ def _collapse_same_tags(text: str) -> str:
             prev_tag = tag
             continue
         if prev_tag and tag.lower() == prev_tag.lower():
-            out.append(f"{indent}{post_ws}{rest}{nl or ''}")
+            out.append(f"{indent}{rest}{nl}")
         else:
             out.append(line)
             prev_tag = tag

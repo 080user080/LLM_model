@@ -1,121 +1,79 @@
---- a/GUI.py
-+++ b/GUI.py
-@@ class DialogGUI(tk.Tk):
-         self.txt_output.pack(fill="both", expand=True, padx=8, pady=(8, 0))
-         self.txt_output.tag_configure("find_match", background="#44475a")
-         self.txt_output.tag_configure("find_free", background="#555555")
-         self.txt_output.bind("<KeyRelease>", self._on_output_key)
-+        #GPT: оновлювати % позиції курсора
-+        self.txt_output.bind("<KeyRelease>",      lambda e: self._update_cursor_percent(), add="+")
-+        self.txt_output.bind("<ButtonRelease-1>", lambda e: self._update_cursor_percent(), add="+")
-+        self.txt_output.bind("<<Selection>>",     lambda e: self._update_cursor_percent(), add="+")
-         controls = ttk.Frame(out_frame, style="Panel.TFrame")
-         controls.pack(fill="x", padx=8, pady=(6, 8))
-@@
-         ttk.Button(tools, text="Завантажити .txt → Вихід", command=self._load_txt_into_output).pack(side="left", padx=(12, 6))
-         # 3) Зберегти як (.txt)
-         ttk.Button(tools, text="Зберегти як .txt", command=self._save_output_as).pack(side="left")
-+        # 4) Позиція курсора у %  #GPT
-+        ttk.Label(tools, text="Позиція:").pack(side="left", padx=(12, 6))  #GPT
-+        self.percent_var = tk.StringVar(value="0")                          #GPT
-+        self.e_percent = ttk.Entry(tools, textvariable=self.percent_var, width=6, justify="right")  #GPT
-+        self._paint_entry(self.e_percent)                                   #GPT
-+        self.e_percent.pack(side="left")                                    #GPT
-+        ttk.Label(tools, text="%").pack(side="left", padx=(2, 0))           #GPT
-+        self.e_percent.bind("<Return>", self._jump_to_percent_event)        #GPT
-+        self.e_percent.bind("<FocusOut>", lambda e: self._normalize_percent())  #GPT
+--- a/improved_logic.py
++++ b/improved_logic.py
+@@ -223,73 +223,72 @@ def _narrator_fallback(text: str, narrator_tag: str) -> str:
+             out.append(line)
+             continue
+         if dialog_start.match(stripped):
+             in_block = False
+             out.append(line)
+             continue
+         if not in_block:
+             out.append(f"{narrator_tag}: {line}")
+             in_block = True
+         else:
+             out.append(line)
+     return "".join(out)
  
-         # Статусбар
-         self.status = ttk.Label(self, text="Готово", style="Small.TLabel", anchor="w")
-         self.status.pack(fill="x", padx=12, pady=(0, 8))
-@@
-     def _goto_output_span(self, start: int, end: int):
-         """Прокрутка до діапазону у txt_output за offsets і підсвічування."""
-         # Зняти попередні підсвітки
-         self.txt_output.tag_remove("find_match", "1.0", "end")
-         self.txt_output.tag_remove("find_free", "1.0", "end")
-@@
-         self.txt_output.tag_add("find_match", start_idx, end_idx)
-         self.txt_output.see(start_idx)
-         self.txt_output.mark_set("insert", start_idx)
-         self.txt_output.focus_set()
-+        self._update_cursor_percent()  #GPT
-@@
-     def _free_search_next(self):
-@@
-         self.txt_output.tag_remove("find_free", "1.0", "end")
-         self.txt_output.tag_add("find_free", s_idx, e_idx)
-         self.txt_output.see(s_idx)
-         self.txt_output.mark_set("insert", s_idx)
-         self.txt_output.focus_set()
-+        self._update_cursor_percent()  #GPT
-         self._set_status("Знайдено")
-@@
-     def _set_output_text(self, text: str):
-         self.txt_output.configure(state="normal")
-         self.txt_output.delete("1.0", "end")
-         self.txt_output.insert("1.0", text)
-         self.txt_output.mark_set("insert", "1.0")
-         self.txt_output.see("1.0")
-         self.txt_output.configure(state="normal")
-         self._rebuild_tags()
-+        self._update_cursor_percent()  #GPT
-+
-+    # ----------------- Навігація за % у «Оброблений текст» ----------------- #GPT
-+    def _update_cursor_percent(self):
-+        """Оновити відсоток позиції курсора від початку тексту."""
-+        try:
-+            text = self.txt_output.get("1.0", "end-1c")
-+            total = len(text)
-+            if total <= 0:
-+                self.percent_var.set("0")
-+                return
-+            idx = self.txt_output.index("insert")
-+            line, col = map(int, idx.split("."))
-+            lines = text.splitlines(keepends=True)
-+            offset = sum(len(x) for x in lines[: max(0, line - 1)]) + col
-+            pct = int(round(100 * offset / total))
-+            pct = max(0, min(100, pct))
-+            self.percent_var.set(str(pct))
-+        except Exception:
-+            pass
-+
-+    def _normalize_percent(self):
-+        """Нормалізувати введення у полі % до діапазону [0..100]."""
-+        try:
-+            raw = (self.percent_var.get() or "").strip()
-+            m = re.search(r"(\d+(?:[.,]\d+)?)", raw)
-+            val = float(m.group(1).replace(",", ".")) if m else 0.0
-+        except Exception:
-+            val = 0.0
-+        val = max(0.0, min(100.0, val))
-+        if abs(val - round(val)) < 1e-6:
-+            self.percent_var.set(str(int(round(val))))
-+        else:
-+            self.percent_var.set(f"{val:.1f}".rstrip("0").rstrip("."))
-+
-+    def _jump_to_percent_event(self, _evt=None):
-+        """Enter у полі % → перехід до відповідної позиції."""
-+        self._normalize_percent()
-+        try:
-+            val = float(self.percent_var.get())
-+        except Exception:
-+            val = 0.0
-+        self._jump_to_percent(val)
-+        return "break"
-+
-+    def _jump_to_percent(self, val: float):
-+        """Перейти до val% від початку тексту, встановити курсор і прокрутити."""
-+        try:
-+            text = self.txt_output.get("1.0", "end-1c")
-+            total = len(text)
-+            if total <= 0:
-+                return
-+            off = int(round(total * (max(0.0, min(100.0, val)) / 100.0)))
-+            off = max(0, min(max(0, total - 1), off))
-+            idx = f"1.0 + {off} chars"
-+            self.txt_output.mark_set("insert", idx)
-+            self.txt_output.see(idx)
-+            self._update_cursor_percent()
-+        except Exception:
-+            pass
+ 
+ def _demote_g1_dialogs(text: str) -> str:
+     """Якщо після фолбеку зʼявилися #g1: перед діалогами — міняємо на #g?."""
+     pat = re.compile(rf"(?m)^(\s*)#g1\s*:\s*(?=[{DASHES}«\"„“”'’])")
+     return pat.sub(r"\1#g?: ", text)
+ 
+ 
+ def _collapse_same_tags(text: str) -> str:
+     """Згортає повтори однакових тегів (#gN) у суміжних рядках (крім діалогів і #g?)."""
+     lines = text.splitlines(keepends=True)
+     out: List[str] = []
+     prev_tag: Optional[str] = None
+-    tag_re = re.compile(r"^(\s*)(#g(?:\d+|\?))\s*:\s*(.*?)(\r?\n)?$", re.DOTALL)
++    tag_re = re.compile(r"^(\s*)(#g(?:\d+|\?))\s*:(\s*)(.*?)(\r?\n)?$", re.DOTALL)
+     is_dialog = re.compile(r"^\s*(?:[-–—]|[«\"„“”'’])")
+ 
+     for line in lines:
+         m = tag_re.match(line)
+         if not m:
+             if line.strip():
+                 prev_tag = None
+             out.append(line)
+             continue
+-        indent, tag, rest, nl = m.groups()
+-        nl = nl or "\n"
++        indent, tag, post_ws, rest, nl = m.groups()
+ 
+         if tag == "#g?":
+             out.append(line)
+             prev_tag = tag
+             continue
+         if is_dialog.match(rest.lstrip()):
+             out.append(line)
+             prev_tag = tag
+             continue
+         if prev_tag and tag.lower() == prev_tag.lower():
+-            out.append(f"{indent}{rest}{nl}")
++            out.append(f"{indent}{post_ws}{rest}{nl or ''}")
+         else:
+             out.append(line)
+             prev_tag = tag
+ 
+     return "".join(out)
+ 
+ 
+ # ---- Публічне API ----
+ 
+ def process_dialogs(
+     input_path: str,
+     legend_text: str = "",
+     workers: int = 1,
+     output_path: Optional[str] = None,
+ ) -> Tuple[str, str]:
+     logs_parts: List[str] = []
+     if not os.path.isfile(input_path):
+         return "", f"Файл не знайдено: {input_path}"
+ 
+     with open(input_path, "r", encoding="utf-8") as f:
+         src = f.read()
+ 
+     legend_map, narrator_tag = parse_legend_text(legend_text)
+     nar_tag = narrator_tag or "#g1"
+     ctx = ProcessingContext(legend=legend_map, narrator_tag=nar_tag)
