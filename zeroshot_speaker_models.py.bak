@@ -1,4 +1,4 @@
-# ukrroberta_zeroshot_from_files.py — призначення мовця (Ukr-RoBERTa mean-pooling)
+﻿# ukrroberta_zeroshot_from_files.py — призначення мовця (Ukr-RoBERTa mean-pooling)
 # -*- coding: utf-8 -*-
 
 import os
@@ -31,10 +31,10 @@ def parse_args():
     p.add_argument("--out", dest="out", required=True, help="Вихідний файл з підстановками")
     p.add_argument("--legend", dest="legend", default=None, help="JSON або TXT легенда")
     p.add_argument("--log", dest="log", default=None, help="TSV лог прогнозів")
-    p.add_argument("--threshold", type=float, default=0.30, help="Мін. cosine для присвоєння")
+    p.add_argument("--threshold", type=float, default=0.25, help="Мін. cosine для присвоєння")
     p.add_argument("--min_margin", type=float, default=0.01, help="Мін. різниця Top1-Top2")
     p.add_argument("--ctx_lines", type=int, default=11, help="Вікно контексту ±N рядків")
-    p.add_argument("--topk", type=int, default=2, help="Скільки топ-кандидатів логувати")
+    p.add_argument("--topk", type=int, default=5, help="Скільки топ-кандидатів логувати")
     p.add_argument("--model", default="youscan/ukr-roberta-base", help="HF модель ембеддингів")
     p.add_argument("--only_unknown", action="store_true", help="Обробляти лише #g?")
     p.add_argument("--force_when_single", action="store_true", help="Якщо кандидат один — присвоїти завжди")
@@ -54,9 +54,7 @@ def read_text(path: str) -> List[str]:
     return lines
 
 def _safe_field(s: str) -> str:
-    out = (s or "").replace("\t", " ").replace("\n", " ").replace("\r", " ")
-    dprint("[DEBUG] build_gid_primary_name: keys=", list(out.keys())[:10])
-    return out
+    return str(s or "").replace("\t", " ").replace("\n", " ").replace("\r", " ")
 
 def _try_json(s: str):
     try:
@@ -609,12 +607,14 @@ def main():
             c = mention_counts.get(g, 0)
             if c:
                 boosts[gi] += min(0.30, 0.04 * c)  # до +0.10 за часті згадки
-        # 4.4 Для явних лексичних хітів (імен/аліасів у рядку) — максимальний бонус 1.0
+        # 4.4 Для явних лексичних хітів (імен/аліасів у рядку) — максимальний бонус 0.70
         rx_word = re.compile(r"[A-Za-zА-Яа-яЇїІіЄєҐґ][\w’']+")
         lexical_hit = None
         for tok in rx_word.findall(body_for_hints or ""):
             gid_hit = name_forms_inv.get(tok.lower())
             if not gid_hit or not valid_gid(gid_hit):
+                continue
+            if addr_gid and gid_hit == addr_gid:
                 continue
             if gid_hit not in cand_list:
                 cand_list.append(gid_hit)
@@ -627,7 +627,7 @@ def main():
                 s_hit = agg_sim(qvec, verb_embs_all[gid_hit], args.agg_topk)
                 sim = torch.cat([sim, torch.tensor([s_hit])], dim=0)
                 boosts = torch.cat([boosts, torch.zeros(1, dtype=sim.dtype)], dim=0)
-            boosts[cand_list.index(gid_hit)] = 1.0
+            boosts[cand_list.index(gid_hit)] = 0.70
             lexical_hit = gid_hit
         # 4.5 Штраф за "нового" мовця, що ще не говорив до цього рядка
         if args.novelty_penalty > 0 and first_seen_idx:

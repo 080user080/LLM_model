@@ -1,4 +1,4 @@
-# ukrroberta_zeroshot_from_files.py — призначення мовця (Ukr-RoBERTa mean-pooling)
+﻿# ukrroberta_zeroshot_from_files.py — призначення мовця (Ukr-RoBERTa mean-pooling)
 # -*- coding: utf-8 -*-
 
 import os
@@ -277,19 +277,20 @@ def collect_context_candidates(idx: int, lines: List[str], ctx: int, name_forms_
     dprint(f"[DEBUG] collect_context_candidates idx={idx}:", found[:10])
     return found
 
-def count_context_mentions(idx: int, lines: List[str], ctx: int, name_forms_inv: Dict[str, str]) -> Dict[str, int]:
-    """Повертає лічильник згадок кожного gid у ±ctx рядках (включно з поточним)."""
+def count_context_mentions(idx: int, lines: List[str], ctx: int, name_forms_inv: Dict[str, str]) -> Dict[str, float]:
+    """Повертає вагований лічильник згадок кожного gid у ±ctx рядках (включно з поточним)."""
     lo, hi = max(0, idx - ctx), min(len(lines), idx + ctx + 1)
     # Так само дозволяємо слова, що починаються з малих літер
     rx_tok = re.compile(r"[A-Za-zА-Яа-яЇїІіЄєҐґ][\w’']+")
-    counts: Dict[str, int] = {}
+    counts: Dict[str, float] = {}
     for j in range(lo, hi):
         m = TAG_ANY.match(lines[j])
         text = (m.group(3) if m else lines[j]) or ""
         for tok in rx_tok.findall(text):
             gid = name_forms_inv.get(tok.lower())
             if gid:
-                counts[gid] = counts.get(gid, 0) + 1
+                weight = 1.0 / (1 + abs(j - idx))
+                counts[gid] = counts.get(gid, 0.0) + weight
     # dprint(f"[DEBUG] count_context_mentions idx={idx}:", list(counts.items())[:5])
     return counts
 
@@ -604,9 +605,9 @@ def main():
         # 4.3 Згадки персонажів у поточному контексті → підсилення їх кандидатів
         mention_counts = count_context_mentions(idx, lines, args.ctx_lines, name_forms_inv)
         for gi, g in enumerate(cand_list):
-            c = mention_counts.get(g, 0)
-            if c:
-                boosts[gi] += min(0.30, 0.04 * c)  # до +0.10 за часті згадки
+            weight_sum = mention_counts.get(g, 0.0)
+            if weight_sum:
+                boosts[gi] += min(0.30, 0.04 * weight_sum)  # до +0.10 за часті згадки
         # 4.4 Для явних лексичних хітів (імен/аліасів у рядку) — максимальний бонус 0.70
         rx_word = re.compile(r"[A-Za-zА-Яа-яЇїІіЄєҐґ][\w’']+")
         lexical_hit = None

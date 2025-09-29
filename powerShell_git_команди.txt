@@ -9,3 +9,16 @@ git commit -m "опис змін"
 
 # відправити на GitHub
 git push
+
+
+cd d:\Python\TEXT\LLM_model\
+# видалити файл локально
+del old_file.py
+
+# перевірити зміни
+git status
+
+# зафіксувати видалення
+git add -A
+git commit -m "remove old_file.py"
+git push

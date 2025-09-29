@@ -1,79 +1,132 @@
---- a/improved_logic.py
-+++ b/improved_logic.py
-@@ -223,73 +223,72 @@ def _narrator_fallback(text: str, narrator_tag: str) -> str:
-             out.append(line)
+--- a/zeroshot_speaker_models.py
++++ b/zeroshot_speaker_models.py
+@@ -255,63 +255,64 @@ def find_addressee(body: str, name_forms_inv: Dict[str, str]) -> Optional[str]:
+ def gender_hint(line: str) -> Optional[str]:
+     t = (line or "").lower()
+     if re.search(r"\b(сказав|відповів|промовив|крикнув|вигукнув|прошепотів|буркнув|звернувся|процедив|відказав|зазначив|погодився)\b", t):
+         return "M"
+     if re.search(r"\b(сказала|відповіла|промовила|крикнула|вигукнула|прошепотіла|буркнула|звернулась|процедила|відказала|зазначила|погодилась)\b", t):
+         return "F"
+     if "чоловічий голос" in t: return "M"
+     if "жіночий голос" in t: return "F"
+     return None
+ 
+ def collect_context_candidates(idx: int, lines: List[str], ctx: int, name_forms_inv: Dict[str, str]) -> List[str]:
+     lo, hi = max(0, idx - ctx), min(len(lines), idx + ctx + 1)
+     found = []
+     # Враховуємо й слова, що починаються з малих літер (щоб ловити аліаси на кшталт "правнучка")
+     rx_tok = re.compile(r"[A-Za-zА-Яа-яЇїІіЄєҐґ][\w’']+")
+     for j in range(lo, hi):
+         m = TAG_ANY.match(lines[j])
+         text = (m.group(3) if m else lines[j]) or ""
+         for tok in rx_tok.findall(text):
+             gid = name_forms_inv.get(tok.lower())
+             if gid and gid not in found:
+                 found.append(gid)
+     dprint(f"[DEBUG] collect_context_candidates idx={idx}:", found[:10])
+     return found
+ 
+-def count_context_mentions(idx: int, lines: List[str], ctx: int, name_forms_inv: Dict[str, str]) -> Dict[str, int]:
+-    """Повертає лічильник згадок кожного gid у ±ctx рядках (включно з поточним)."""
++def count_context_mentions(idx: int, lines: List[str], ctx: int, name_forms_inv: Dict[str, str]) -> Dict[str, float]:
++    """Повертає вагований лічильник згадок кожного gid у ±ctx рядках (включно з поточним)."""
+     lo, hi = max(0, idx - ctx), min(len(lines), idx + ctx + 1)
+     # Так само дозволяємо слова, що починаються з малих літер
+     rx_tok = re.compile(r"[A-Za-zА-Яа-яЇїІіЄєҐґ][\w’']+")
+-    counts: Dict[str, int] = {}
++    counts: Dict[str, float] = {}
+     for j in range(lo, hi):
+         m = TAG_ANY.match(lines[j])
+         text = (m.group(3) if m else lines[j]) or ""
+         for tok in rx_tok.findall(text):
+             gid = name_forms_inv.get(tok.lower())
+             if gid:
+-                counts[gid] = counts.get(gid, 0) + 1
++                weight = 1.0 / (1 + abs(j - idx))
++                counts[gid] = counts.get(gid, 0.0) + weight
+     # dprint(f"[DEBUG] count_context_mentions idx={idx}:", list(counts.items())[:5])
+     return counts
+ 
+ _VERB_NAME_RX = re.compile(
+     r"^\s*[—\-–]?\s*(сказав|сказала|відповів|відповіла|запитав|запитала|спитав|спитала|промовив|промовила|вигукнув|вигукнула|прошепотів|прошепотіла)\s+([A-ZА-ЯЇІЄҐ][\w’']+(?:\s+[A-ZА-ЯЇІЄҐ][\w’']+)?)",
+     re.IGNORECASE
+ )
+ def explicit_speaker_by_rule(body: str, name_forms_inv: Dict[str, str]) -> Optional[str]:
+     """Правило 4: 'сказав ... Ім'я' → пріоритетний спікер."""
+     if not body:
+         return None
+     m = _VERB_NAME_RX.match(body)
+     if not m:
+         return None
+     name = m.group(2).strip().lower()
+     gid = name_forms_inv.get(name)
+     # dprint("[DEBUG] explicit_speaker_by_rule ->", gid)
+     return gid
+ 
+ def make_queries(lines: List[str], ctx_lines: int) -> Dict[int, str]:
+     queries = {}
+     n = len(lines)
+     for i, indent, gid_s, body in extract_dialogs(lines):
+         if gid_s != "?":
              continue
-         if dialog_start.match(stripped):
-             in_block = False
-             out.append(line)
-             continue
-         if not in_block:
-             out.append(f"{narrator_tag}: {line}")
-             in_block = True
-         else:
-             out.append(line)
-     return "".join(out)
+diff --git a/zeroshot_speaker_models.py b/zeroshot_speaker_models.py
+index 256399bf4ea38a52d8065f7abc14845b01a92513..1087d6d3beb7aabc44b23ad495ac580312f76c4e 100644
+--- a/zeroshot_speaker_models.py
++++ b/zeroshot_speaker_models.py
+@@ -582,53 +583,53 @@ def main():
+         for g in cand_list:
+             embs = verb_embs_all.get(g)
+             if embs is None or embs.numel() == 0:
+                 embs = embedder.encode([normalize_for_embed(gid2name.get(g, g))])
+                 verb_embs_all[g] = embs
+             s = agg_sim(qvec, embs, args.agg_topk)
+             sims.append(s)
+         sim = torch.tensor(sims)
+         dprint("[DEBUG] sim shape:", tuple(sim.shape))
  
- 
- def _demote_g1_dialogs(text: str) -> str:
-     """Якщо після фолбеку зʼявилися #g1: перед діалогами — міняємо на #g?."""
-     pat = re.compile(rf"(?m)^(\s*)#g1\s*:\s*(?=[{DASHES}«\"„“”'’])")
-     return pat.sub(r"\1#g?: ", text)
- 
- 
- def _collapse_same_tags(text: str) -> str:
-     """Згортає повтори однакових тегів (#gN) у суміжних рядках (крім діалогів і #g?)."""
-     lines = text.splitlines(keepends=True)
-     out: List[str] = []
-     prev_tag: Optional[str] = None
--    tag_re = re.compile(r"^(\s*)(#g(?:\d+|\?))\s*:\s*(.*?)(\r?\n)?$", re.DOTALL)
-+    tag_re = re.compile(r"^(\s*)(#g(?:\d+|\?))\s*:(\s*)(.*?)(\r?\n)?$", re.DOTALL)
-     is_dialog = re.compile(r"^\s*(?:[-–—]|[«\"„“”'’])")
- 
-     for line in lines:
-         m = tag_re.match(line)
-         if not m:
-             if line.strip():
-                 prev_tag = None
-             out.append(line)
-             continue
--        indent, tag, rest, nl = m.groups()
--        nl = nl or "\n"
-+        indent, tag, post_ws, rest, nl = m.groups()
- 
-         if tag == "#g?":
-             out.append(line)
-             prev_tag = tag
-             continue
-         if is_dialog.match(rest.lstrip()):
-             out.append(line)
-             prev_tag = tag
-             continue
-         if prev_tag and tag.lower() == prev_tag.lower():
--            out.append(f"{indent}{rest}{nl}")
-+            out.append(f"{indent}{post_ws}{rest}{nl or ''}")
-         else:
-             out.append(line)
-             prev_tag = tag
- 
-     return "".join(out)
- 
- 
- # ---- Публічне API ----
- 
- def process_dialogs(
-     input_path: str,
-     legend_text: str = "",
-     workers: int = 1,
-     output_path: Optional[str] = None,
- ) -> Tuple[str, str]:
-     logs_parts: List[str] = []
-     if not os.path.isfile(input_path):
-         return "", f"Файл не знайдено: {input_path}"
- 
-     with open(input_path, "r", encoding="utf-8") as f:
-         src = f.read()
- 
-     legend_map, narrator_tag = parse_legend_text(legend_text)
-     nar_tag = narrator_tag or "#g1"
-     ctx = ProcessingContext(legend=legend_map, narrator_tag=nar_tag)
+         # 4) бусти
+         boosts = torch.zeros_like(sim)
+         # 4.1 Верб мовлення в рядку → невеликий бонус
+         if _has_speech_verb(body_for_hints):
+             boosts += 0.03
+         # 4.2 Попередній/наступний відомий спікер поруч
+         prev_gid = prev_speaker_up_to.get(idx)
+         next_gid = prev_speaker_up_to.get(idx + 1)  # легкий погляд уперед
+         if prev_gid and prev_gid in cand_list:
+             boosts[cand_list.index(prev_gid)] += 0.06
+         if next_gid and next_gid in cand_list:
+             boosts[cand_list.index(next_gid)] += 0.03
+         # 4.3 Згадки персонажів у поточному контексті → підсилення їх кандидатів
+         mention_counts = count_context_mentions(idx, lines, args.ctx_lines, name_forms_inv)
+         for gi, g in enumerate(cand_list):
+-            c = mention_counts.get(g, 0)
+-            if c:
+-                boosts[gi] += min(0.30, 0.04 * c)  # до +0.10 за часті згадки
++            weight_sum = mention_counts.get(g, 0.0)
++            if weight_sum:
++                boosts[gi] += min(0.30, 0.04 * weight_sum)  # до +0.10 за часті згадки
+         # 4.4 Для явних лексичних хітів (імен/аліасів у рядку) — максимальний бонус 0.70
+         rx_word = re.compile(r"[A-Za-zА-Яа-яЇїІіЄєҐґ][\w’']+")
+         lexical_hit = None
+         for tok in rx_word.findall(body_for_hints or ""):
+             gid_hit = name_forms_inv.get(tok.lower())
+             if not gid_hit or not valid_gid(gid_hit):
+                 continue
+             if gid_hit not in cand_list:
+                 cand_list.append(gid_hit)
+                 # ініціалізувати ембеди вербалізаторів для нового кандидата
+                 if gid_hit not in verb_embs_all:
+                     rec = legend.get(gid_hit, {"names": [gid2name.get(gid_hit, gid_hit)], "aliases": []})
+                     verbalizers[gid_hit] = generate_verbalizers(gid_hit, rec)
+                     verb_embs_all[gid_hit] = embedder.encode(verbalizers[gid_hit], batch_size=32)
+                 # розширити sim та boosts синхронно
+                 s_hit = agg_sim(qvec, verb_embs_all[gid_hit], args.agg_topk)
+                 sim = torch.cat([sim, torch.tensor([s_hit])], dim=0)
+                 boosts = torch.cat([boosts, torch.zeros(1, dtype=sim.dtype)], dim=0)
+             boosts[cand_list.index(gid_hit)] = 0.70
+             lexical_hit = gid_hit
+         # 4.5 Штраф за "нового" мовця, що ще не говорив до цього рядка
+         if args.novelty_penalty > 0 and first_seen_idx:
+             any_spoken_before = any(first_seen_idx.get(g, 10**9) < idx for g in cand_list)
+             if any_spoken_before:
+                 for gi, g in enumerate(cand_list):
