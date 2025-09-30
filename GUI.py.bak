@@ -75,8 +75,7 @@ class DialogGUI(tk.Tk):
         self._build_layout()
         self._bind_shortcuts()
 
-        # Завантажити дефолтні файли і стартувати лог-таймер
-        self._load_defaults()
+        # Таймер періодичного зчитування коротких подій
         self.after(120, self._drain_logs)
 
     def _center_on_screen(self):
@@ -89,6 +88,12 @@ class DialogGUI(tk.Tk):
         x = (sw - w) // 2
         y = (sh - h) // 2
         self.geometry(f"{w}x{h}+{x}+{y}")
+
+        # Завжди підтягуємо дефолтні файли (перемикач видалено)
+        self._load_defaults()
+
+        # Запустити періодичне злиття логів
+        self.after(120, self._drain_logs)
     # ----------------- Глобальні шорткати ----------------- #GPT
     def _bind_shortcuts(self):
         """Глобальні комбінації та зручні переходи."""
@@ -227,14 +232,11 @@ class DialogGUI(tk.Tk):
 
         legend_frame = ttk.Labelframe(bottom, text="Легенда #g1…#g30")
         out_container = ttk.Labelframe(bottom, text="Оброблений текст")
-        # ttk.Panedwindow не підтримує minsize → контролюємо sash вручну
-        bottom.add(legend_frame, weight=1)
-        bottom.add(out_container, weight=3)
-        # Початкове положення sash і страховки після розмітки
-        self.after_idle(lambda: bottom.sashpos(0, 300))
-        self.after(200,      lambda: bottom.sashpos(0, 300))
-        # Гарантувати, що панель легенди не схована
-        self.after(350, lambda: self._ensure_legend_visible(bottom, legend_frame, 280))
+        # Легенда менша, текст більший
+        bottom.add(legend_frame, weight=1, minsize=200)
+        bottom.add(out_container, weight=3, minsize=400)
+        # Встановити стартову позицію роздільника так, щоб легенда була видима одразу
+        self.after(100, lambda: bottom.sashpos(0, 300))
 
         self.txt_legend = self._make_text(legend_frame, height=18)
         self.txt_legend.pack(fill="both", expand=True, padx=8, pady=8)
@@ -1078,16 +1080,6 @@ class DialogGUI(tk.Tk):
         self.txt_output.focus_set()
         self._update_cursor_percent()  #GPT
         self._set_status("Знайдено")
-
-    # --- Гарантувати видимість легенди у ttk.Panedwindow ---
-    def _ensure_legend_visible(self, paned: ttk.Panedwindow, legend_frame: ttk.Labelframe, min_px: int = 260):
-        """Якщо легенда стиснута до надто малого розміру, зрушити sash правіше."""
-        try:
-            legend_w = legend_frame.winfo_width()
-            if legend_w < 40:
-                paned.sashpos(0, int(min_px))
-        except Exception:
-            pass
 
     # --- Завантажити .txt у «Оброблений текст» і перезаписати вихідний файл --- #GPT
     def _load_txt_into_output(self):

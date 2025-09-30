@@ -1,60 +1,64 @@
---- a/zeroshot_speaker_models.py
-+++ b/zeroshot_speaker_models.py
-@@ -589,54 +589,57 @@ def main():
-             sims.append(s)
-         sim = torch.tensor(sims)
-         dprint("[DEBUG] sim shape:", tuple(sim.shape))
+--- a/gui.py
++++ b/gui.py
+@@ class DialogGUI(tk.Tk):
+-        self.minsize(960, 700)
+-        # Центрувати після побудови вікна
+-        self.after(50, self._center_on_screen)
++        self.minsize(960, 700)
++        # Центрувати після побудови вікна
++        self.after(50, self._center_on_screen)
+@@
+-        # Таймер періодичного зчитування коротких подій
+-        self.after(120, self._drain_logs)
++        # Завантажити дефолтні файли і стартувати лог-таймер
++        self._load_defaults()
++        self.after(120, self._drain_logs)
+@@
+     def _center_on_screen(self):
+         """Центрує вікно на екрані."""
+         self.update_idletasks()
+         w = self.winfo_width()
+         h = self.winfo_height()
+         sw = self.winfo_screenwidth()
+         sh = self.winfo_screenheight()
+         x = (sw - w) // 2
+         y = (sh - h) // 2
+         self.geometry(f"{w}x{h}+{x}+{y}")
+-
+-        # Завжди підтягуємо дефолтні файли (перемикач видалено)
+-        self._load_defaults()
+-
+-        # Запустити періодичне злиття логів
+-        self.after(120, self._drain_logs)
+@@ def _build_layout(self):
+-        bottom = ttk.Panedwindow(self, orient="horizontal")
++        bottom = ttk.Panedwindow(self, orient="horizontal")
+         bottom.pack(fill="both", expand=True, padx=10, pady=(0, 10))
  
-         # 4) бусти
-         boosts = torch.zeros_like(sim)
-         # 4.1 Верб мовлення в рядку → невеликий бонус
-         if _has_speech_verb(body_for_hints):
-             boosts += 0.03
-         # 4.2 Попередній/наступний відомий спікер поруч
-         prev_gid = prev_speaker_up_to.get(idx)
-         next_gid = prev_speaker_up_to.get(idx + 1)  # легкий погляд уперед
-         if prev_gid and prev_gid in cand_list:
-             boosts[cand_list.index(prev_gid)] += 0.06
-         if next_gid and next_gid in cand_list:
-             boosts[cand_list.index(next_gid)] += 0.03
-         # 4.3 Згадки персонажів у поточному контексті → підсилення їх кандидатів
-         mention_counts = count_context_mentions(idx, lines, args.ctx_lines, name_forms_inv)
-         for gi, g in enumerate(cand_list):
-             weight_sum = mention_counts.get(g, 0.0)
-             if weight_sum:
-                 boosts[gi] += min(0.30, 0.04 * weight_sum)  # до +0.10 за часті згадки
-         # 4.4 Для явних лексичних хітів (імен/аліасів у рядку) — максимальний бонус 0.70
-         rx_word = re.compile(r"[A-Za-zА-Яа-яЇїІіЄєҐґ][\w’']+")
-         lexical_hit = None
-+        addr_gid_for_hits = addr_gid
-         for tok in rx_word.findall(body_for_hints or ""):
-             gid_hit = name_forms_inv.get(tok.lower())
-             if not gid_hit or not valid_gid(gid_hit):
-                 continue
-+            if addr_gid_for_hits and gid_hit == addr_gid_for_hits:
-+                continue
-             if gid_hit not in cand_list:
-                 cand_list.append(gid_hit)
-                 # ініціалізувати ембеди вербалізаторів для нового кандидата
-                 if gid_hit not in verb_embs_all:
-                     rec = legend.get(gid_hit, {"names": [gid2name.get(gid_hit, gid_hit)], "aliases": []})
-                     verbalizers[gid_hit] = generate_verbalizers(gid_hit, rec)
-                     verb_embs_all[gid_hit] = embedder.encode(verbalizers[gid_hit], batch_size=32)
-                 # розширити sim та boosts синхронно
-                 s_hit = agg_sim(qvec, verb_embs_all[gid_hit], args.agg_topk)
-                 sim = torch.cat([sim, torch.tensor([s_hit])], dim=0)
-                 boosts = torch.cat([boosts, torch.zeros(1, dtype=sim.dtype)], dim=0)
-             boosts[cand_list.index(gid_hit)] = 0.70
-             lexical_hit = gid_hit
-         # 4.5 Штраф за "нового" мовця, що ще не говорив до цього рядка
-         if args.novelty_penalty > 0 and first_seen_idx:
-             any_spoken_before = any(first_seen_idx.get(g, 10**9) < idx for g in cand_list)
-             if any_spoken_before:
-                 for gi, g in enumerate(cand_list):
-                     if first_seen_idx.get(g, 10**9) >= idx:
-                         pen = args.novelty_penalty * (0.5 if mention_counts.get(g, 0) else 1.0)
-                         boosts[gi] -= pen
- 
-         final = sim + boosts
-         order = torch.argsort(final, descending=True).tolist()
-         dprint("[DEBUG] final top candidates:", [(cand_list[k], float(final[k])) for k in order[:min(5, len(order))]])
+         legend_frame = ttk.Labelframe(bottom, text="Легенда #g1…#g30")
+         out_container = ttk.Labelframe(bottom, text="Оброблений текст")
+-        # Легенда менша, текст більший
+-        bottom.add(legend_frame, weight=1, minsize=200)
+-        bottom.add(out_container, weight=3, minsize=400)
+-        # Встановити стартову позицію роздільника так, щоб легенда була видима одразу
+-        self.after(100, lambda: bottom.sashpos(0, 300))
++        # ttk.Panedwindow не підтримує minsize → контролюємо sash вручну
++        bottom.add(legend_frame, weight=1)
++        bottom.add(out_container, weight=3)
++        # Початкове положення sash і страховки після розмітки
++        self.after_idle(lambda: bottom.sashpos(0, 300))
++        self.after(200,      lambda: bottom.sashpos(0, 300))
++        # Гарантувати, що панель легенди не схована
++        self.after(350, lambda: self._ensure_legend_visible(bottom, legend_frame, 280))
+@@
+         self._set_status("Знайдено")
++
++    # --- Гарантувати видимість легенди у ttk.Panedwindow ---
++    def _ensure_legend_visible(self, paned: ttk.Panedwindow, legend_frame: ttk.Labelframe, min_px: int = 260):
++        """Якщо легенда стиснута до надто малого розміру, зрушити sash правіше."""
++        try:
++            legend_w = legend_frame.winfo_width()
++            if legend_w < 40:
++                paned.sashpos(0, int(min_px))
++        except Exception:
++            pass
