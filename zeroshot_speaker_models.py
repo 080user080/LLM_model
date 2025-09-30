@@ -40,6 +40,11 @@ def parse_args():
     p.add_argument("--force_when_single", action="store_true", help="Якщо кандидат один — присвоїти завжди")
     p.add_argument("--no_gender_filter", action="store_true", help="Вимкнути фільтр за родом")
     p.add_argument("--agg_topk", type=int, default=1, help="Агрегація по вербалізаторах: 1=max, >1=mean top-k")
+    # Нові параметри керування точністю/швидкістю
+    p.add_argument("--lexical_boost", type=float, default=0.35, help="Буст для лексичних збігів")
+    p.add_argument("--num_threads", type=int, default=None, help="Кількість потоків для PyTorch")
+    p.add_argument("--max_length", type=int, default=256, help="Макс. токенів для encode")
+    p.add_argument("--log_query_len", type=int, default=400, help="Обрізання запиту у лог")
     args = p.parse_args()
     dprint("[DEBUG] parse_args:", vars(args))
     return args
@@ -349,7 +354,7 @@ class HFEmbedder:
         self.model.eval()
         dprint(f"[DEBUG] HFEmbedder: model={model_name} device={self.device}")
 
-    @torch.no_grad()
+    @torch.inference_mode()
     def encode(self, texts: List[str], batch_size: int = 16, max_length: int = 256) -> torch.Tensor:
         if not texts:
             return torch.zeros((0, self.model.config.hidden_size))
@@ -430,8 +435,8 @@ def agg_sim(qvec: torch.Tensor, embs: torch.Tensor, topk: int) -> float:
 # --------------------------- Main ---------------------------
 
 def main():
-    torch.set_num_threads(max(1, min(4, os.cpu_count() or 1)))
     args = parse_args()
+    torch.set_num_threads(args.num_threads or max(1, min(4, os.cpu_count() or 1)))
     # забезпечуємо наявність нових аргументів у старих скриптах
     if not hasattr(args, "novelty_penalty"):
         args.novelty_penalty = 0.08
@@ -439,7 +444,7 @@ def main():
         args.name_prefix_in_ctx = False
     global TAG_ANY
     # Підтримати '#g?: текст' і '#g? - текст'
-    TAG_ANY = re.compile(r"^(\s*)#g(\d+|\?)\s*:?[\s]*(.*)$", re.DOTALL)
+    TAG_ANY = re.compile(r"^(\s*)#g(\d+|\?)\s*:?[\s]*(.*)$")
 
     lines = read_text(args.inp)
     legend = load_legend(args.legend) or {}
@@ -510,7 +515,7 @@ def main():
     dprint("[DEBUG] gid_list_all size:", len(gid_list_all), gid_list_all[:10])
     verb_embs_all: Dict[str, torch.Tensor] = {}
     for g in gid_list_all:
-        verb_embs_all[g] = embedder.encode(verbalizers[g], batch_size=32)
+        verb_embs_all[g] = embedder.encode(verbalizers[g], batch_size=32, max_length=args.max_length)
     dprint("[DEBUG] verb_embs_all built for:", list(verb_embs_all.keys())[:10])
 
     # попередній мовець
@@ -525,7 +530,7 @@ def main():
     queries = make_queries(lines, args.ctx_lines)
     q_idxs = list(queries.keys())
     q_texts = [queries[i] for i in q_idxs]
-    q_emb = embedder.encode([normalize_for_embed(q) for q in q_texts])
+    q_emb = embedder.encode([normalize_for_embed(q) for q in q_texts], max_length=args.max_length)
     dprint(f"[DEBUG] queries: n={len(q_idxs)}")
 
     logs = []
@@ -544,27 +549,35 @@ def main():
     def classify(idx: int, qvec: torch.Tensor, qtext: str, body_for_hints: str,
                  first_seen_idx: Dict[str, int]) -> Tuple[str, Dict]:
         dprint(f"[DEBUG] classify idx={idx} body[:60]=", (body_for_hints or "")[:60])
+        # Нормалізований текст для правил
+        body_norm = normalize_for_embed(body_for_hints)
+        # Ініціалізація діагностик для логів
+        pool_before = len(gid_list_all)
+        filters_applied: List[str] = []
         # 0) Явне правило: «дієслово мовлення + Ім'я» на початку рядка
-        gid_rule = explicit_speaker_by_rule(body_for_hints, name_forms_inv)
+        gid_rule = explicit_speaker_by_rule(body_norm, name_forms_inv)
         if gid_rule:
             dprint("[DEBUG] explicit rule ->", gid_rule)
-            return gid_rule, {"reason": "explicit_verb_name", "top": [(gid_rule, 1.0)], "best": 1.0, "margin": 1.0}
+            return gid_rule, {"reason": "explicit_verb_name", "top": [(gid_rule, 1.0)], "best": 1.0, "margin": 1.0,
+                              "cand_pool_before": pool_before, "filters_applied": ",".join(filters_applied)}
 
         # 1) контекстні кандидати
         context_cands = collect_context_candidates(idx, lines, args.ctx_lines, name_forms_inv)
+        pool_before = len(context_cands) if context_cands else len(gid_list_all)
         cand_gids = context_cands if context_cands else list(gid_list_all)
         # Відфільтрувати сміттєві кандидати, залишити лише #gN
         cand_gids = [g for g in cand_gids if valid_gid(g)] or list(gid_list_all)
         dprint("[DEBUG] cand_gids:", cand_gids[:10])
 
         # 2) звертання
-        addr_gid = find_addressee(body_for_hints, name_forms_inv)
+        addr_gid = find_addressee(body_norm, name_forms_inv)
         if addr_gid and addr_gid in cand_gids and len(cand_gids) > 1:
             cand_gids = [g for g in cand_gids if g != addr_gid]
+            filters_applied.append("addressee")
 
         # 3) фільтр за родом (за наявності)
         if not args.no_gender_filter:
-            hint = gender_hint(lines[idx - 1] if idx - 1 >= 0 else "") or gender_hint(body_for_hints)
+            hint = gender_hint(lines[idx - 1] if idx - 1 >= 0 else "") or gender_hint(body_norm)
             if hint:
                 filtered = []
                 for g in cand_gids:
@@ -573,9 +586,11 @@ def main():
                         filtered.append(g)
                 if filtered:
                     cand_gids = filtered
+                    filters_applied.append("gender")
 
         if not cand_gids:
-            return "#g?", {"reason": "no_candidates", "top": [], "best": 0.0, "margin": 0.0}
+            return "#g?", {"reason": "no_candidates", "top": [], "best": 0.0, "margin": 0.0,
+                           "cand_pool_before": pool_before, "filters_applied": ",".join(filters_applied)}
 
         # обчислення sim по множині вербалізаторів кожного кандидата (п.6)
         cand_list = list(cand_gids)
@@ -593,7 +608,7 @@ def main():
         # 4) бусти
         boosts = torch.zeros_like(sim)
         # 4.1 Верб мовлення в рядку → невеликий бонус
-        if _has_speech_verb(body_for_hints):
+        if _has_speech_verb(body_norm):
             boosts += 0.03
         # 4.2 Попередній/наступний відомий спікер поруч
         prev_gid = prev_speaker_up_to.get(idx)
@@ -612,7 +627,7 @@ def main():
         rx_word = re.compile(r"[A-Za-zА-Яа-яЇїІіЄєҐґ][\w’']+")
         lexical_hit = None
         addr_gid_for_hits = addr_gid
-        for tok in rx_word.findall(body_for_hints or ""):
+        for tok in rx_word.findall(body_norm or ""):
             gid_hit = name_forms_inv.get(tok.lower())
             if not gid_hit or not valid_gid(gid_hit):
                 continue
@@ -624,12 +639,12 @@ def main():
                 if gid_hit not in verb_embs_all:
                     rec = legend.get(gid_hit, {"names": [gid2name.get(gid_hit, gid_hit)], "aliases": []})
                     verbalizers[gid_hit] = generate_verbalizers(gid_hit, rec)
-                    verb_embs_all[gid_hit] = embedder.encode(verbalizers[gid_hit], batch_size=32)
+                    verb_embs_all[gid_hit] = embedder.encode(verbalizers[gid_hit], batch_size=32, max_length=args.max_length)
                 # розширити sim та boosts синхронно
                 s_hit = agg_sim(qvec, verb_embs_all[gid_hit], args.agg_topk)
                 sim = torch.cat([sim, torch.tensor([s_hit])], dim=0)
                 boosts = torch.cat([boosts, torch.zeros(1, dtype=sim.dtype)], dim=0)
-            boosts[cand_list.index(gid_hit)] = 0.70
+            boosts[cand_list.index(gid_hit)] = float(args.lexical_boost)
             lexical_hit = gid_hit
         # 4.5 Штраф за "нового" мовця, що ще не говорив до цього рядка
         if args.novelty_penalty > 0 and first_seen_idx:
@@ -644,7 +659,8 @@ def main():
         order = torch.argsort(final, descending=True).tolist()
         dprint("[DEBUG] final top candidates:", [(cand_list[k], float(final[k])) for k in order[:min(5, len(order))]])
         if not order:
-            return "#g?", {"reason": "no_scores", "top": [], "best": 0.0, "margin": 0.0}
+            return "#g?", {"reason": "no_scores", "top": [], "best": 0.0, "margin": 0.0,
+                           "cand_pool_before": pool_before, "filters_applied": ",".join(filters_applied)}
 
         margin = float(final[order[0]].item() - final[order[1]].item()) if len(order) > 1 else 0.0
         best_gid = normalize_gid(cand_list[order[0]])
@@ -653,16 +669,21 @@ def main():
         topk = [(normalize_gid(cand_list[k]), float(final[k].item())) for k in order[:max(1, args.topk)]]
 
         if lexical_hit is not None and normalize_gid(lexical_hit) == best_gid:
-            return best_gid, {"reason": "lexical_hit", "top": topk, "best": best_cos, "margin": margin}
+            return best_gid, {"reason": "lexical_hit", "top": topk, "best": best_cos, "margin": margin,
+                              "cand_pool_before": pool_before, "filters_applied": ",".join(filters_applied)}
 
         if args.force_when_single and len(cand_list) == 1:
-            return best_gid, {"reason": "force_single", "top": topk, "best": best_cos, "margin": margin}
+            return best_gid, {"reason": "force_single", "top": topk, "best": best_cos, "margin": margin,
+                              "cand_pool_before": pool_before, "filters_applied": ",".join(filters_applied)}
         if (best_cos >= args.threshold) and (margin >= args.min_margin):
-            return best_gid, {"reason": "threshold", "top": topk, "best": best_cos, "margin": margin}
+            return best_gid, {"reason": "threshold", "top": topk, "best": best_cos, "margin": margin,
+                              "cand_pool_before": pool_before, "filters_applied": ",".join(filters_applied)}
         # якщо є суттєве підсилення згадками — повідомити у причині
-        if any(mention_counts.get(g, 0) for g in cand_list):
-            return best_gid, {"reason": "mention_boost", "top": topk, "best": best_cos, "margin": margin}
-        return "#g?", {"reason": "low_conf", "top": topk, "best": best_cos, "margin": margin}
+        if any(mention_counts.get(g, 0) for g in cand_list) and best_cos >= (args.threshold - 0.02):
+            return best_gid, {"reason": "mention_boost", "top": topk, "best": best_cos, "margin": margin,
+                              "cand_pool_before": pool_before, "filters_applied": ",".join(filters_applied)}
+        return "#g?", {"reason": "low_conf", "top": topk, "best": best_cos, "margin": margin,
+                       "cand_pool_before": pool_before, "filters_applied": ",".join(filters_applied)}
 
     # обробка #g?
     for qi, qidx in enumerate(q_idxs):
@@ -678,13 +699,17 @@ def main():
             changed += 1
         else:
             dprint(f"[DEBUG] keep unknown at line {qidx}")
+        pool_after = len(set([g for g, _ in info.get("top", [])]))
         logs.append({
             "line": qidx, "decision": decision, "best_gid": decision,
             "best_score": round(info.get("best", 0.0), 4),
             "margin": round(info.get("margin", 0.0), 4),
             "top": [(normalize_gid(g), round(s, 4)) for g, s in info.get("top", [])],
-            "query": _safe_field(q_texts[qi][:400]),
-            "reason": "gq_" + info.get("reason", "")
+            "query": _safe_field(q_texts[qi][:args.log_query_len]),
+            "reason": "gq_" + info.get("reason", ""),
+            "cand_pool_before": info.get("cand_pool_before", ""),
+            "cand_pool_after": pool_after,
+            "filters_applied": info.get("filters_applied", "")
         })
 
     # Санітаризація: прибрати службові рядки, нормалізувати формат
@@ -696,13 +721,17 @@ def main():
         eol = _eol(ln)
         m_bad = META_RX.match(ln)
         if m_bad:
-            body = re.sub(r"^\s*-\s*", "", m_bad.group(1)).lstrip()
+            # Не знімаємо дефіс тут; залишаємо як є. Очищення дефіса робимо лише після #g-тегу.
+            body = (m_bad.group(1) or "").lstrip()
             out_lines.append(f"#g?: {body}{eol}")
             continue
         m = TAG_ANY.match(ln)
         if m:
             indent, gid_s, body = m.groups()
-            body = re.sub(r"^\s*-\s*", "", (body or "")).lstrip()
+            # Знімати лише ASCII-дефіс одразу після тегу, не чіпати еmdash '—'.
+            if re.match(r"^\s*-\s+", body or ""):
+                body = re.sub(r"^\s*-\s+", "", body or "", count=1)
+            body = (body or "").lstrip()
             out_lines.append(f"{indent}#g{gid_s}: {body}{eol}")
         else:
             out_lines.append(ln)
@@ -720,10 +749,12 @@ def main():
 
     if args.log:
         with open(args.log, "w", encoding="utf-8") as f:
-            f.write("line_idx\tdecision\tbest_gid\tbest_score\tmargin\ttop\tquery\treason\n")
+            f.write("line_idx\tdecision\tbest_gid\tbest_score\tmargin\ttop\tquery\treason\tcand_pool_before\tcand_pool_after\tfilters_applied\n")
             for r in logs:
                 top_str = ";".join([f"{g}:{p:.3f}" for g, p in r["top"]])
-                f.write(f"{r['line']}\t{r['decision']}\t{r['best_gid']}\t{r['best_score']:.3f}\t{r['margin']:.3f}\t{top_str}\t{r['query']}\t{r.get('reason','')}\n")
+                f.write(
+                    f"{r['line']}\t{r['decision']}\t{r['best_gid']}\t{r['best_score']:.3f}\t{r['margin']:.3f}\t{top_str}\t{r['query']}\t{r.get('reason','')}\t{r.get('cand_pool_before','')}\t{r.get('cand_pool_after','')}\t{r.get('filters_applied','')}\n"
+                )
 
     print(f"[ML_model] Готово. Записано ->", args.out)
     print(f"[ML_model] Невідомих мовців: {total_unknown}, замінено: {changed}")
