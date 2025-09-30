@@ -611,9 +611,12 @@ def main():
         # 4.4 Для явних лексичних хітів (імен/аліасів у рядку) — максимальний бонус 0.70
         rx_word = re.compile(r"[A-Za-zА-Яа-яЇїІіЄєҐґ][\w’']+")
         lexical_hit = None
+        addr_gid_for_hits = addr_gid
         for tok in rx_word.findall(body_for_hints or ""):
             gid_hit = name_forms_inv.get(tok.lower())
             if not gid_hit or not valid_gid(gid_hit):
+                continue
+            if addr_gid_for_hits and gid_hit == addr_gid_for_hits:
                 continue
             if gid_hit not in cand_list:
                 cand_list.append(gid_hit)

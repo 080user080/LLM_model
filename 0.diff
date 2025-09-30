@@ -1,85 +1,6 @@
 --- a/zeroshot_speaker_models.py
 +++ b/zeroshot_speaker_models.py
-@@ -255,63 +255,64 @@ def find_addressee(body: str, name_forms_inv: Dict[str, str]) -> Optional[str]:
- def gender_hint(line: str) -> Optional[str]:
-     t = (line or "").lower()
-     if re.search(r"\b(сказав|відповів|промовив|крикнув|вигукнув|прошепотів|буркнув|звернувся|процедив|відказав|зазначив|погодився)\b", t):
-         return "M"
-     if re.search(r"\b(сказала|відповіла|промовила|крикнула|вигукнула|прошепотіла|буркнула|звернулась|процедила|відказала|зазначила|погодилась)\b", t):
-         return "F"
-     if "чоловічий голос" in t: return "M"
-     if "жіночий голос" in t: return "F"
-     return None
- 
- def collect_context_candidates(idx: int, lines: List[str], ctx: int, name_forms_inv: Dict[str, str]) -> List[str]:
-     lo, hi = max(0, idx - ctx), min(len(lines), idx + ctx + 1)
-     found = []
-     # Враховуємо й слова, що починаються з малих літер (щоб ловити аліаси на кшталт "правнучка")
-     rx_tok = re.compile(r"[A-Za-zА-Яа-яЇїІіЄєҐґ][\w’']+")
-     for j in range(lo, hi):
-         m = TAG_ANY.match(lines[j])
-         text = (m.group(3) if m else lines[j]) or ""
-         for tok in rx_tok.findall(text):
-             gid = name_forms_inv.get(tok.lower())
-             if gid and gid not in found:
-                 found.append(gid)
-     dprint(f"[DEBUG] collect_context_candidates idx={idx}:", found[:10])
-     return found
- 
--def count_context_mentions(idx: int, lines: List[str], ctx: int, name_forms_inv: Dict[str, str]) -> Dict[str, int]:
--    """Повертає лічильник згадок кожного gid у ±ctx рядках (включно з поточним)."""
-+def count_context_mentions(idx: int, lines: List[str], ctx: int, name_forms_inv: Dict[str, str]) -> Dict[str, float]:
-+    """Повертає вагований лічильник згадок кожного gid у ±ctx рядках (включно з поточним)."""
-     lo, hi = max(0, idx - ctx), min(len(lines), idx + ctx + 1)
-     # Так само дозволяємо слова, що починаються з малих літер
-     rx_tok = re.compile(r"[A-Za-zА-Яа-яЇїІіЄєҐґ][\w’']+")
--    counts: Dict[str, int] = {}
-+    counts: Dict[str, float] = {}
-     for j in range(lo, hi):
-         m = TAG_ANY.match(lines[j])
-         text = (m.group(3) if m else lines[j]) or ""
-         for tok in rx_tok.findall(text):
-             gid = name_forms_inv.get(tok.lower())
-             if gid:
--                counts[gid] = counts.get(gid, 0) + 1
-+                weight = 1.0 / (1 + abs(j - idx))
-+                counts[gid] = counts.get(gid, 0.0) + weight
-     # dprint(f"[DEBUG] count_context_mentions idx={idx}:", list(counts.items())[:5])
-     return counts
- 
- _VERB_NAME_RX = re.compile(
-     r"^\s*[—\-–]?\s*(сказав|сказала|відповів|відповіла|запитав|запитала|спитав|спитала|промовив|промовила|вигукнув|вигукнула|прошепотів|прошепотіла)\s+([A-ZА-ЯЇІЄҐ][\w’']+(?:\s+[A-ZА-ЯЇІЄҐ][\w’']+)?)",
-     re.IGNORECASE
- )
- def explicit_speaker_by_rule(body: str, name_forms_inv: Dict[str, str]) -> Optional[str]:
-     """Правило 4: 'сказав ... Ім'я' → пріоритетний спікер."""
-     if not body:
-         return None
-     m = _VERB_NAME_RX.match(body)
-     if not m:
-         return None
-     name = m.group(2).strip().lower()
-     gid = name_forms_inv.get(name)
-     # dprint("[DEBUG] explicit_speaker_by_rule ->", gid)
-     return gid
- 
- def make_queries(lines: List[str], ctx_lines: int) -> Dict[int, str]:
-     queries = {}
-     n = len(lines)
-     for i, indent, gid_s, body in extract_dialogs(lines):
-         if gid_s != "?":
-             continue
-diff --git a/zeroshot_speaker_models.py b/zeroshot_speaker_models.py
-index 256399bf4ea38a52d8065f7abc14845b01a92513..1087d6d3beb7aabc44b23ad495ac580312f76c4e 100644
---- a/zeroshot_speaker_models.py
-+++ b/zeroshot_speaker_models.py
-@@ -582,53 +583,53 @@ def main():
-         for g in cand_list:
-             embs = verb_embs_all.get(g)
-             if embs is None or embs.numel() == 0:
-                 embs = embedder.encode([normalize_for_embed(gid2name.get(g, g))])
-                 verb_embs_all[g] = embs
-             s = agg_sim(qvec, embs, args.agg_topk)
+@@ -589,54 +589,57 @@ def main():
              sims.append(s)
          sim = torch.tensor(sims)
          dprint("[DEBUG] sim shape:", tuple(sim.shape))
@@ -99,19 +20,19 @@ index 256399bf4ea38a52d8065f7abc14845b01a92513..1087d6d3beb7aabc44b23ad495ac5803
          # 4.3 Згадки персонажів у поточному контексті → підсилення їх кандидатів
          mention_counts = count_context_mentions(idx, lines, args.ctx_lines, name_forms_inv)
          for gi, g in enumerate(cand_list):
--            c = mention_counts.get(g, 0)
--            if c:
--                boosts[gi] += min(0.30, 0.04 * c)  # до +0.10 за часті згадки
-+            weight_sum = mention_counts.get(g, 0.0)
-+            if weight_sum:
-+                boosts[gi] += min(0.30, 0.04 * weight_sum)  # до +0.10 за часті згадки
+             weight_sum = mention_counts.get(g, 0.0)
+             if weight_sum:
+                 boosts[gi] += min(0.30, 0.04 * weight_sum)  # до +0.10 за часті згадки
          # 4.4 Для явних лексичних хітів (імен/аліасів у рядку) — максимальний бонус 0.70
          rx_word = re.compile(r"[A-Za-zА-Яа-яЇїІіЄєҐґ][\w’']+")
          lexical_hit = None
++        addr_gid_for_hits = addr_gid
          for tok in rx_word.findall(body_for_hints or ""):
              gid_hit = name_forms_inv.get(tok.lower())
              if not gid_hit or not valid_gid(gid_hit):
                  continue
++            if addr_gid_for_hits and gid_hit == addr_gid_for_hits:
++                continue
              if gid_hit not in cand_list:
                  cand_list.append(gid_hit)
                  # ініціалізувати ембеди вербалізаторів для нового кандидата
@@ -130,3 +51,10 @@ index 256399bf4ea38a52d8065f7abc14845b01a92513..1087d6d3beb7aabc44b23ad495ac5803
              any_spoken_before = any(first_seen_idx.get(g, 10**9) < idx for g in cand_list)
              if any_spoken_before:
                  for gi, g in enumerate(cand_list):
+                     if first_seen_idx.get(g, 10**9) >= idx:
+                         pen = args.novelty_penalty * (0.5 if mention_counts.get(g, 0) else 1.0)
+                         boosts[gi] -= pen
+ 
+         final = sim + boosts
+         order = torch.argsort(final, descending=True).tolist()
+         dprint("[DEBUG] final top candidates:", [(cand_list[k], float(final[k])) for k in order[:min(5, len(order))]])
