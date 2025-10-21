@@ -1,0 +1,11 @@
+{
+  "DEF_INPUT": "Dialog_test.txt",
+  "DEF_OUTPUT": "Dialog_dialogues.txt",
+  "DEF_LEGEND": "Legenda_test.txt",
+  "theme": {
+    "BG": "#1e1e1e",
+    "PANEL": "#252526",
+    "FG": "#e6e6e6",
+    "ACCENT": "#3a96dd"
+  }
+}
