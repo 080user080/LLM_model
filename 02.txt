@@ -1,4 +1,4 @@
-﻿# ukrroberta_zeroshot_from_files.py — призначення мовця (Ukr-RoBERTa mean-pooling)
+# ukrroberta_zeroshot_from_files.py — призначення мовця (Ukr-RoBERTa mean-pooling)
 # -*- coding: utf-8 -*-
 
 import os

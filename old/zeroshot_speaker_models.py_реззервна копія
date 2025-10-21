@@ -89,14 +89,9 @@ def parse_args():
 def read_text(path: str) -> List[str]:
     dprint(f"[DEBUG] read_text: path={path}")
     with open(path, "r", encoding="utf-8") as f:
-        raw_lines = f.read().splitlines(keepends=True)
-    # Нормалізуємо пунктуацію та пробіли у кожному рядку. Це допоможе
-    # уникнути плутанини між різними видами тире/лапок/пробілів.
-    norm_lines: List[str] = []
-    for ln in raw_lines:
-        norm_lines.append(_normalize_punctuations(ln))
-    dprint(f"[DEBUG] read_text: lines={len(norm_lines)}")
-    return norm_lines
+        lines = f.read().splitlines(keepends=True)
+    dprint(f"[DEBUG] read_text: lines={len(lines)}")
+    return lines
 
 def _safe_field(s: str) -> str:
     return str(s or "").replace("\t", " ").replace("\n", " ").replace("\r", " ")
@@ -204,39 +199,6 @@ def normalize_for_embed(s: str) -> str:
     out = s
     # dprint("[DEBUG] normalize_for_embed:", out[:80])
     return out
-
-# -----------------------------------------------------------------------------
-# Нормалізація пунктуації та пробілів
-# -----------------------------------------------------------------------------
-def _normalize_punctuations(s: str) -> str:
-    """Уніфікує пробіли, тире, лапки й апострофи у рядку.
-
-    - NBSP/NNBSP/thin/figure/hair/zero‑width пробіли → звичайний пробіл
-    - Різні види тире → ASCII дефіс '-' (що важливо для парсингу тегів)
-    - Лапки « » “ ” „ ” → звичайні подвійні лапки "
-    - Апострофи різних видів → одиночну лапку ' (ASCII)
-    """
-    if not s:
-        return s
-    # Замінюємо різні види пробілів
-    s = (
-        s.replace("\u00A0", " ")   # NBSP
-         .replace("\u202F", " ")   # NNBSP
-         .replace("\u2009", " ")   # thin space
-         .replace("\u2007", " ")   # figure space
-         .replace("\u200A", " ")   # hair space
-         .replace("\u200B", "")    # zero‑width space
-    )
-    # Уніфікуємо тире до ASCII‑дефіса
-    for ch in DASHES:
-        s = s.replace(ch, "-")
-    # Замінюємо лапки на подвійні
-    for ch in QUOTE_SRC:
-        s = s.replace(ch, '"')
-    # Замінюємо різні апострофи на ASCII‑одиночну
-    for ch in APOS_SRC:
-        s = s.replace(ch, "'")
-    return s
 
 def is_dialog_body(body: str) -> bool:
     b = (body or "").replace(NBSP, " ").lstrip()
@@ -1067,10 +1029,8 @@ def main():
         m = TAG_ANY.match(ln)
         if m:
             indent, gid_s, body = m.groups()
-            # Preserve leading hyphens and following spaces in the body text.
-            # Originally, the code stripped patterns like "- " at the beginning of a line,
-            # but this could change punctuation (e.g., turning "- Привіт" into "Привіт").
-            # We avoid altering the original punctuation by not applying this substitution.
+            if re.match(r"^\s*-\s+", body or ""):
+                body = re.sub(r"^\s*-\s+", "", body or "", count=1)
             body = (body or "").lstrip()
             out_lines.append(f"{indent}#g{gid_s}: {body}{eol}")
         else:

@@ -1,0 +1,19 @@
+normalize_dbfs: -16
+
+sounds:
+  v:
+    file: "бах.mp3"
+    gain_db: 0
+
+  d:
+    file: "рип.mp3"
+    gain_db: 0
+    normalize: false   # 👈 правильно: всередині блоку d
+
+  p2:
+    file: "пауза2сек.mp3"
+    gain_db: 0
+
+  r:
+    file: "Розділ.mp3"
+    gain_db: 0

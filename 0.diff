@@ -1,85 +1,28 @@
----/ukrroberta_zeroshot_from_files.py
-+++/ukrroberta_zeroshot_from_files.py
 @@
--    def classify(idx: int, qvec: torch.Tensor, qtext: str, body_for_hints: str,
--                 first_seen_idx: Dict[str, int]) -> Tuple[str, Dict]:
-+    def classify(idx: int, qvec: torch.Tensor, qtext: str, body_for_hints: str,
-+                 first_seen_idx: Dict[str, int]) -> Tuple[str, Dict]:
-         dprint(f"[DEBUG] classify idx={idx} body[:60]=", (body_for_hints or "")[:60])
-         # Нормалізований текст для правил
-         body_norm = normalize_for_embed(body_for_hints)
-+        # Ініціалізація діагностик для логів
-+        pool_before = len(gid_list_all)
-+        filters_applied: List[str] = []
-         # 0) Явне правило: «дієслово мовлення + Ім'я» на початку рядка
-         gid_rule = explicit_speaker_by_rule(body_norm, name_forms_inv)
-         if gid_rule:
-             dprint("[DEBUG] explicit rule ->", gid_rule)
--            return gid_rule, {"reason": "explicit_verb_name", "top": [(gid_rule, 1.0)], "best": 1.0, "margin": 1.0}
-+            return gid_rule, {"reason": "explicit_verb_name", "top": [(gid_rule, 1.0)], "best": 1.0, "margin": 1.0,
-+                              "cand_pool_before": pool_before, "filters_applied": ",".join(filters_applied)}
-@@
--        context_cands = collect_context_candidates(idx, lines, args.ctx_lines, name_forms_inv)
--        pool_before = len(context_cands) if context_cands else len(gid_list_all)
--        filters_applied: List[str] = []
-+        context_cands = collect_context_candidates(idx, lines, args.ctx_lines, name_forms_inv)
-+        pool_before = len(context_cands) if context_cands else len(gid_list_all)
-         cand_gids = context_cands if context_cands else list(gid_list_all)
-         # Відфільтрувати сміттєві кандидати, залишити лише #gN
-         cand_gids = [g for g in cand_gids if valid_gid(g)] or list(gid_list_all)
-         dprint("[DEBUG] cand_gids:", cand_gids[:10])
-@@
--        if not cand_gids:
--            return "#g?", {"reason": "no_candidates", "top": [], "best": 0.0, "margin": 0.0}
-+        if not cand_gids:
-+            return "#g?", {"reason": "no_candidates", "top": [], "best": 0.0, "margin": 0.0,
-+                           "cand_pool_before": pool_before, "filters_applied": ",".join(filters_applied)}
-@@
--        if not order:
--            return "#g?", {"reason": "no_scores", "top": [], "best": 0.0, "margin": 0.0}
-+        if not order:
-+            return "#g?", {"reason": "no_scores", "top": [], "best": 0.0, "margin": 0.0,
-+                           "cand_pool_before": pool_before, "filters_applied": ",".join(filters_applied)}
-@@
--        if lexical_hit is not None and normalize_gid(lexical_hit) == best_gid:
--            return best_gid, {"reason": "lexical_hit", "top": topk, "best": best_cos, "margin": margin}
-+        if lexical_hit is not None and normalize_gid(lexical_hit) == best_gid:
-+            return best_gid, {"reason": "lexical_hit", "top": topk, "best": best_cos, "margin": margin,
-+                              "cand_pool_before": pool_before, "filters_applied": ",".join(filters_applied)}
-@@
--        if args.force_when_single and len(cand_list) == 1:
--            return best_gid, {"reason": "force_single", "top": topk, "best": best_cos, "margin": margin}
-+        if args.force_when_single and len(cand_list) == 1:
-+            return best_gid, {"reason": "force_single", "top": topk, "best": best_cos, "margin": margin,
-+                              "cand_pool_before": pool_before, "filters_applied": ",".join(filters_applied)}
-@@
--        if (best_cos >= args.threshold) and (margin >= args.min_margin):
--            return best_gid, {"reason": "threshold", "top": topk, "best": best_cos, "margin": margin}
-+        if (best_cos >= args.threshold) and (margin >= args.min_margin):
-+            return best_gid, {"reason": "threshold", "top": topk, "best": best_cos, "margin": margin,
-+                              "cand_pool_before": pool_before, "filters_applied": ",".join(filters_applied)}
-@@
--        if any(mention_counts.get(g, 0) for g in cand_list) and best_cos >= (args.threshold - 0.02):
--            return best_gid, {"reason": "mention_boost", "top": topk, "best": best_cos, "margin": margin}
--        return "#g?", {"reason": "low_conf", "top": topk, "best": best_cos, "margin": margin}
-+        if any(mention_counts.get(g, 0) for g in cand_list) and best_cos >= (args.threshold - 0.02):
-+            return best_gid, {"reason": "mention_boost", "top": topk, "best": best_cos, "margin": margin,
-+                              "cand_pool_before": pool_before, "filters_applied": ",".join(filters_applied)}
-+        return "#g?", {"reason": "low_conf", "top": topk, "best": best_cos, "margin": margin,
-+                       "cand_pool_before": pool_before, "filters_applied": ",".join(filters_applied)}
-@@
--        pool_after = len(set([g for g, _ in info.get("top", [])]))
-+        pool_after = len(set([g for g, _ in info.get("top", [])]))
-         logs.append({
-             "line": qidx, "decision": decision, "best_gid": decision,
-             "best_score": round(info.get("best", 0.0), 4),
-             "margin": round(info.get("margin", 0.0), 4),
-             "top": [(normalize_gid(g), round(s, 4)) for g, s in info.get("top", [])],
-             "query": _safe_field(q_texts[qi][:args.log_query_len]),
-             "reason": "gq_" + info.get("reason", ""),
--            "cand_pool_before": pool_before,
-+            "cand_pool_before": info.get("cand_pool_before", ""),
-             "cand_pool_after": pool_after,
--            "filters_applied": ",".join(filters_applied)
-+            "filters_applied": info.get("filters_applied", "")
-         })
+     def _save_output_as(self):
+         path = filedialog.asksaveasfilename(
+             title="Зберегти як TXT",
+             defaultextension=".txt",
+             filetypes=[("Текстові файли", ".txt")],
+             initialfile=os.path.basename(self.out_path.get().strip() or DEF_OUTPUT),
+         )
+         if not path:
+             return
+-        try:
+-            with open(path, "w", encoding="utf-8") as f:
+-                f.write(self.txt_output.get("1.0", "end-1c"))
+-            self.out_path.set(path)
+-        self._append_log(f"Збережено: {path}")
+-        self._set_status("Збережено")
+-    except Exception as e:
+-        messagebox.showerror("Помилка запису", str(e))
+-        self._set_status("Помилка запису")
++        try:
++            with open(path, "w", encoding="utf-8") as f:
++                f.write(self.txt_output.get("1.0", "end-1c"))
++            self.out_path.set(path)
++            self._append_log(f"Збережено: {path}")
++            self._set_status("Збережено")
++        except Exception as e:
++            messagebox.showerror("Помилка запису", str(e))
++            self._set_status("Помилка запису")

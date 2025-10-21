@@ -67,6 +67,10 @@ def _write_text_preserve(path: str, text_unix: str, encoding: str, had_bom: bool
         with open(path, "w", encoding=encoding, newline="") as f:
             f.write(data)
 
+# Утиліта: прибрати BOM з початку рядка/блоку
+def _strip_bom(s: str) -> str:
+    return s.lstrip("\ufeff")
+
 # Парсер diff
 def parse_simple_diff(diff_path: str) -> List[Rule]:
     try:
@@ -109,7 +113,9 @@ def parse_simple_diff(diff_path: str) -> List[Rule]:
                     new_buf.append(t[1:]); i += 1; continue
                 # службові рядки типу "\ No newline at end of file"
                 i += 1
-            rules.append(Rule(find="\n".join(old_buf), replace="\n".join(new_buf), idx=idx))
+            old_txt = _strip_bom("\n".join(old_buf))
+            new_txt = _strip_bom("\n".join(new_buf))
+            rules.append(Rule(find=old_txt, replace=new_txt, idx=idx))
             idx += 1
             continue
 
@@ -129,7 +135,9 @@ def parse_simple_diff(diff_path: str) -> List[Rule]:
             new_block: List[str] = []
             while k < len(lines) and lines[k].startswith("+") and not lines[k].startswith("+++"):
                 new_block.append(lines[k][1:]); k += 1
-            rules.append(Rule(find="\n".join(old_block), replace="\n".join(new_block), idx=idx))
+            old_txt = _strip_bom("\n".join(old_block))
+            new_txt = _strip_bom("\n".join(new_block))
+            rules.append(Rule(find=old_txt, replace=new_txt, idx=idx))
             idx += 1
             i = k
             continue
@@ -139,7 +147,7 @@ def parse_simple_diff(diff_path: str) -> List[Rule]:
             new_block: List[str] = []
             while i < len(lines) and lines[i].startswith("+") and not lines[i].startswith("+++"):
                 new_block.append(lines[i][1:]); i += 1
-            rules.append(Rule(find="", replace="\n".join(new_block), idx=idx))
+            rules.append(Rule(find="", replace=_strip_bom("\n".join(new_block)), idx=idx))
             idx += 1
             continue
 
