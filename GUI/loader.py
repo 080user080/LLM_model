@@ -1,9 +1,13 @@
-# Простий лоадер плагінів для пакету GUI.plugins
+"""
+Пошук і завантаження плагінів в пакеті GUI.plugins.
+Плагін — модуль, що експортує одну з:
+  - register(app, buttons_frame, content_frame)
+  - get_buttons() -> list[dict(label, callback, tooltip?)]
+"""
 import pkgutil
 import importlib
 import traceback
 import logging
-from functools import partial
 
 logger = logging.getLogger(__name__)
 
@@ -46,18 +50,16 @@ def register_all(app, buttons_frame, content_frame):
         except Exception:
             logger.error("Помилка реєстрації плагіна %s:\n%s", getattr(m, "__name__", "<unknown>"), traceback.format_exc())
 
+from functools import partial
 def install_button(app, frame, b):
     # b: dict with 'label' and 'callback'
     label = b.get("label", "Unnamed")
     cb = b.get("callback")
-    try:
-        import tkinter as tk
-        from tkinter import ttk
-    except Exception:
-        return None
+    import tkinter as tk
+    from tkinter import ttk
     if not callable(cb):
         logger.warning("Callback %s not callable", label)
-        return None
+        return
     btn = ttk.Button(frame, text=label, command=lambda cb=cb: safe_call(app, cb))
     btn.pack(fill="x", pady=4)
     return btn
