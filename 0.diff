@@ -1,20 +1,35 @@
-*** a/tets.py
---- b/tets.py
-@@
--    # Збираємо назад
--    final_text = ''.join(new_paragraphs)
--
--    # Очищення пробілів і зайвих переносів
--    final_text = re.sub(r'[ \t]+', ' ', final_text)
--    final_text = re.sub(r'\n{3,}', '\n\n', final_text).strip() + "\n"
-+    # Збираємо назад
-+    final_text = ''.join(new_paragraphs)
+--- a/tets.py
++++ b/tets.py
+@@ -40,7 +40,11 @@
+ 
+ # Регулярний вираз для пошуку пунктуації в after_punctuation_newline (м'який пошук)
+ PUNCT_NEWLINE_REGEX = re.compile(r'[.,?!]')
+-# GPT-ВИПРАВЛЕННЯ: Новий регулярний вираз для after_match (строгий пошук)
++# GPT-ВИПРАВЛЕННЯ: Новий регулярний вираз для after_match (строгий пошук) 
++# Шукає 0-3 пробіли/символи, за якими йде ОДИН знак пунктуації.
++# Це гарантує, що ми не захопимо надто багато тексту, але включимо крапку чи кому.
++PUNCT_MATCH_REGEX = re.compile(r'(\s*[.,?!])')
 +
-+    # ВИПРАВЛЕННЯ: прибираємо пробіли/переноси перед знаками пунктуації,
-+    # щоб не опинити крапку або кому на окремому рядку перед тегом.
-+    final_text = re.sub(r'\s+([.,?!])', r'\1', final_text)
+ 
+ def get_spans(text, tags_config):
+     # Зберігає всі знахідки для подальшої обробки
+@@ -82,14 +86,13 @@
+                     elif insert_mode == "after_match":
+-                        # Шукаємо пунктуацію одразу за збігом (строгий пошук)
+                         rest = text[m.end():]
+                         
+-                        # ВИКОРИСТОВУЄМО PUNCT_MATCH_REGEX та re.match, щоб дивитися тільки на початок "rest"
++                        # ВИКОРИСТОВУЄМО PUNCT_MATCH_REGEX та re.match, щоб дивитися 
++                        # тільки на початок "rest" (тобто одразу за основним збігом)
+                         punct_match = PUNCT_MATCH_REGEX.match(rest) 
+ 
+                         if punct_match:
+                             # Якщо є пунктуація, встановлюємо кінець збігу після неї.
+                             # end = m.end() + довжина знайденого фрагменту (пробіли + пунктуація)
+                             end = m.end() + punct_match.end()
+                             has_punct = True # Позначаємо, що ми включили пунктуацію
+-                        
 +
-+    # Очищення пробілів і зайвих переносів
-+    final_text = re.sub(r'[ \t]+', ' ', final_text)
-+    final_text = re.sub(r'\n{3,}', '\n\n', final_text).strip() + "\n"
-*** End Patch
+                         spans_by_rule.append({"rule": rule, "start": start, "end": end, "has_punct": has_punct, "mode": insert_match})
+ 
+                     elif insert_mode == "before_match":
