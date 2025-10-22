@@ -1,35 +1,41 @@
---- a/tets.py
-+++ b/tets.py
-@@ -40,7 +40,11 @@
- 
- # Регулярний вираз для пошуку пунктуації в after_punctuation_newline (м'який пошук)
- PUNCT_NEWLINE_REGEX = re.compile(r'[.,?!]')
--# GPT-ВИПРАВЛЕННЯ: Новий регулярний вираз для after_match (строгий пошук)
-+# GPT-ВИПРАВЛЕННЯ: Новий регулярний вираз для after_match (строгий пошук) 
-+# Шукає 0-3 пробіли/символи, за якими йде ОДИН знак пунктуації.
-+# Це гарантує, що ми не захопимо надто багато тексту, але включимо крапку чи кому.
-+PUNCT_MATCH_REGEX = re.compile(r'(\s*[.,?!])')
+*** Begin Patch
+*** Update File: app_Full_book_multi_progres_Dialog_test.py
+@@
+ def _load_sfx_config(path: str = "sfx.yaml") -> dict:
+     """
+     Load SFX configuration from YAML. If the file does not exist or is invalid,
+     return a minimal default configuration.
+     """
+     cfg = {"normalize_dbfs": -16, "sounds": {}}
+     try:
+         if os.path.exists(path):
+             with open(path, "r", encoding="utf-8") as f:
+                 data = yaml.safe_load(f)
+                 if isinstance(data, dict):
+                     cfg.update(data)
+     except Exception:
+         # Fall back to default minimal config
+         pass
+     return cfg
 +
- 
- def get_spans(text, tags_config):
-     # Зберігає всі знахідки для подальшої обробки
-@@ -82,14 +86,13 @@
-                     elif insert_mode == "after_match":
--                        # Шукаємо пунктуацію одразу за збігом (строгий пошук)
-                         rest = text[m.end():]
-                         
--                        # ВИКОРИСТОВУЄМО PUNCT_MATCH_REGEX та re.match, щоб дивитися тільки на початок "rest"
-+                        # ВИКОРИСТОВУЄМО PUNCT_MATCH_REGEX та re.match, щоб дивитися 
-+                        # тільки на початок "rest" (тобто одразу за основним збігом)
-                         punct_match = PUNCT_MATCH_REGEX.match(rest) 
- 
-                         if punct_match:
-                             # Якщо є пунктуація, встановлюємо кінець збігу після неї.
-                             # end = m.end() + довжина знайденого фрагменту (пробіли + пунктуація)
-                             end = m.end() + punct_match.end()
-                             has_punct = True # Позначаємо, що ми включили пунктуацію
--                        
 +
-                         spans_by_rule.append({"rule": rule, "start": start, "end": end, "has_punct": has_punct, "mode": insert_match})
- 
-                     elif insert_mode == "before_match":
++def get_sfx_config(path: str = "sfx.yaml") -> dict:
++    """
++    Read and return SFX configuration from YAML on demand.
++
++    Unlike _load_sfx_config which may be used once at startup, this helper
++    always (re)reads the YAML file so updates to sfx.yaml are picked up
++    without restarting the application.
++    Returns a dict with at least keys: 'normalize_dbfs' and 'sounds'.
++    """
++    out = {"normalize_dbfs": -16, "sounds": {}}
++    try:
++        if os.path.exists(path):
++            with open(path, "r", encoding="utf-8") as f:
++                data = yaml.safe_load(f)
++                if isinstance(data, dict):
++                    out.update(data)
++    except Exception as e:
++        print(f"Warning: could not read SFX config '{path}': {e}")
++    return out
+

@@ -385,7 +385,17 @@ def process_text(text: str) -> (str, int):
 
                 elif insert_mode == "after_match":
                     # вставка відразу після збігу
-                    spans_by_rule.append({"rule": rule, "start": start, "end": end, "has_punct": False, "mode": insert_mode})
+                    # але якщо одразу за збігом ідуть 1-3 пунктуаційні символи (.,!?… або комбінації типу "?!", "...")
+                    # то включаємо їх у span — тег буде вставлено ПІСЛЯ цих символів.
+                    lookahead = para[m.end(): m.end() + 3]
+                    punct_m = re.match(r'^[\.\,\!\?\…]{1,3}', lookahead)
+                    if punct_m:
+                        end = m.end() + punct_m.end()
+                        has_punct = True
+                    else:
+                        end = m.end()
+                        has_punct = False
+                    spans_by_rule.append({"rule": rule, "start": start, "end": end, "has_punct": has_punct, "mode": insert_mode})
 
                 elif insert_mode == "after_paragraph":
                     # вставка в кінці абзацу

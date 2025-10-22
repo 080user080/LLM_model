@@ -20,33 +20,49 @@ structural:
 actions:
   # === Дії/Звукові ефекти ===
   - tag: "#d"                                # Тег звукового ефекту для дій з дверима (door)
-    keywords: '(\b\w+\s+(відчин(?:и(?:ти)?|ив(?:ся)?|ил[аи]|ено|илися)|заскрипіли(?:и(?:ти)?|ив(?:ся)?|ил[аи]|ено|илися))\s+двері\b|\bвідчинив\b)'  
+    keywords: '(\b\w+\s+(відчин(?:и(?:ти)?|ив(?:ся)?|ил[аи]|ено|илися)|заскрипіли(?:и(?:ти)?|ив(?:ся)?|ил[аи]|ено|илися))\s+двері\b|\b\w+\s+відчин(?:и(?:ти)?|ив(?:ся)?|ил[аи]|ено|илися)\b)'  
 # Пошук слів типу "відчинив двері", "заскрипіли двері" або просто "відчинив"
     flags: IGNORECASE                        # Без урахування регістру (великі/малі літери не мають значення)
-    position: "after_match"    
+    position: "before_match"    
     confidence: 0.95                         # Рівень впевненості (використовується при злитті кількох збігів)
   - tag: "#d1"
-    keywords: '(?:\b(?:зачин(?:и(?:ти)?|ив(?:ся)?|ил[аи]|ено|яли|яв|ялися)\s+двері)\b)'
+    keywords: '(?:\b(?:зачин(?:и(?:ти)?|ив(?:ся)?|илася|яла|ил[аи]|ено|яли|яв|ялися)\s+двері)\b)'
     flags: IGNORECASE
-    position: "after_match"
+    position: "previous_punctuation"
     confidence: 0.95
   - tag: "#v"
     keywords: '(прогримів вибух|голосно бахнуло|постріл пролунав|грім вдарив)'
     flags: IGNORECASE
-    position: "after_punctuation_newline"
+    position: "previous_punctuation"
+    confidence: 0.9
+  - tag: "#shot"
+    keywords: '(постріл пролунав)'
+    flags: IGNORECASE
+    position: "before_match"
     confidence: 0.9
   - tag: "#heart"
-    keywords: '(серце шалено калатало|прискорене серцебиття|завмерло серце|жах охопив)'
+    keywords: '(серце шалено калатало|прискорене серцебиття|завмерло серце|ритм серцебиття)'
     flags: IGNORECASE
-    position: "after_punctuation_newline"
+    position: "previous_punctuation"
     confidence: 0.85
   - tag: "#rain"
-    keywords: '(за вікном зашумів дощ|тихо падає дощ|шум дощу|вітер завив)'
+    keywords: '(зашумів дощ|падає дощ|шум дощу|пішов дощ)'
     flags: IGNORECASE
-    position: "after_punctuation_newline"
+    position: "previous_punctuation"
+    confidence: 0.8
+  - tag: "#steps"
+    keywords: '(?:\b(?:зроб(?:ив|ила|или|ивши|илаши)\s+(?:два|кілька|декілька)?\s*крок(?:и|ів)\b|кроки\s+пролунали|чути\s+кроки\b))'
+    flags: IGNORECASE
+    position: "before_match"
     confidence: 0.8
   - tag: "#step"
     keywords: '(?:\b(?:зроб(?:ив|ила|или|ивши|илаши)\s+(?:два|кілька|декілька)?\s*крок(?:и|ів)\b|кроки\s+пролунали|чути\s+кроки|ступ(?:ив|ила|или|ивши)\b))'
     flags: IGNORECASE
-    position: "after_punctuation_newline"
-    confidence: 0.8
+    position: "before_match"
+    confidence: 0.9
+
+  - tag: "#ds"
+    keywords: '(засскрипіли двері)'
+    flags: IGNORECASE
+    position: "after_match"
+    confidence: 0.9
