@@ -1,0 +1,38 @@
+structural:
+  - tag: "#r"
+    keywords: '^\s*(РОЗДІЛ|ЧАСТИНА|ГЛАВА)\b.*$'
+    flags: MULTILINE|IGNORECASE
+    post_tag: "#p2"
+    position: "precede_line"
+    confidence: 1.0
+actions:
+  - tag: "#d"
+    keywords: '(\b\w+\s+(відчинив|зачинив|заскрипіли)\s+двері\b|\bвідчинив\b)'
+    flags: IGNORECASE
+    position: "after_punctuation_newline"
+    confidence: 0.95
+  - tag: "#d1"
+    keywords: '(\b\w+\s+(зачинив)\s+двері\b|\bвідчинив\b)'
+    flags: IGNORECASE
+    position: "after_punctuation_newline"
+    confidence: 0.95
+  - tag: "#v"
+    keywords: '(прогримів вибух|голосно бахнуло|постріл пролунав|грім вдарив)'
+    flags: IGNORECASE
+    position: "after_punctuation_newline"
+    confidence: 0.9
+  - tag: "#heart"
+    keywords: '(серце шалено калатало|прискорене серцебиття|завмерло серце|жах охопив)'
+    flags: IGNORECASE
+    position: "after_punctuation_newline"
+    confidence: 0.85
+  - tag: "#rain"
+    keywords: '(за вікном зашумів дощ|тихо падає дощ|шум дощу|вітер завив)'
+    flags: IGNORECASE
+    position: "after_punctuation_newline"
+    confidence: 0.8
+  - tag: "#step"
+    keywords: '(кроки пролунали|чути кроки|ступив на підлогу|тихий стукіт каблуків)'
+    flags: IGNORECASE
+    position: "after_punctuation_newline"
+    confidence: 0.8
