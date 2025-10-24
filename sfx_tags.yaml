@@ -20,8 +20,7 @@ structural:
 actions:
   # === Дії/Звукові ефекти ===
   - tag: "#d"                                # Тег звукового ефекту для дій з дверима (door)
-    keywords: '(\b\w+\s+(відчин(?:и(?:ти)?|ив(?:ся)?|ил[аи]|ено|илися)|заскрипіли(?:и(?:ти)?|ив(?:ся)?|ил[аи]|ено|илися))\s+двері\b|\b\w+\s+відчин(?:и(?:ти)?|ив(?:ся)?|ил[аи]|ено|илися)\b)'  
-# Пошук слів типу "відчинив двері", "заскрипіли двері" або просто "відчинив"
+    keywords: '(\b\w+\s+(відчин(?:и(?:ти)?|ив(?:ся)?|ил[аи]|ено|илися)|заскрипіли(?:и(?:ти)?|ив(?:ся)?|ил[аи]|ено|илися))\s+двері\b|\b\w+\s+відчин(?:и(?:ти)?|ив(?:ся)?|ил[аи]|ено|илися)\b)'  # Пошук слів типу "відчинив двері", "заскрипіли двері" або просто "відчинив"
     flags: IGNORECASE                        # Без урахування регістру (великі/малі літери не мають значення)
     position: "before_match"    
     confidence: 0.95                         # Рівень впевненості (використовується при злитті кількох збігів)
@@ -29,7 +28,7 @@ actions:
     keywords: '(?:\b(?:зачин(?:и(?:ти)?|ив(?:ся)?|илася|яла|ил[аи]|ено|яли|яв|ялися)\s+двері)\b)'
     flags: IGNORECASE
     position: "previous_punctuation"
-    confidence: 0.95
+    confidence: 0.88
   - tag: "#v"
     keywords: '(прогримів вибух|голосно бахнуло|постріл пролунав|грім вдарив)'
     flags: IGNORECASE
@@ -41,7 +40,7 @@ actions:
     position: "before_match"
     confidence: 0.9
   - tag: "#heart"
-    keywords: '(серце шалено калатало|прискорене серцебиття|завмерло серце|ритм серцебиття)'
+    keywords: '(серце шалено калатало|прискорене серцебиття|завмерло серце|ритм серцебиття|б''ється його серце)'
     flags: IGNORECASE
     position: "previous_punctuation"
     confidence: 0.85
@@ -60,9 +59,33 @@ actions:
     flags: IGNORECASE
     position: "before_match"
     confidence: 0.9
-
   - tag: "#ds"
     keywords: '(засскрипіли двері)'
     flags: IGNORECASE
     position: "after_match"
+    confidence: 0.9
+  - tag: "#vodakup"
+    keywords: '(почу(?:ла|в) шипіння)'
+    flags: IGNORECASE
+    position: "before_match"
+    confidence: 0.9
+  - tag: "#podux1"
+    keywords: '(важке дихання)'
+    flags: IGNORECASE
+    position: "before_match"
+    confidence: 0.9
+  - tag: "#podux2"
+    keywords: '(слабке дихання)'
+    flags: IGNORECASE
+    position: "before_match"
+    confidence: 0.9
+  - tag: "#plach"
+    keywords: '(\b(?:(?:(?:дитячий|гірко|щиро)\s+)?(?:за|роз)?плакал(?:ась?|ися|и|а|ася)|(?:дитячий\s+)?плач)\b)'
+    flags: IGNORECASE
+    position: "before_match"
+    confidence: 0.9
+  - tag: "#cmix"
+    keywords: '(\b(?:(?:Він\s+)?(?:(?:голосно|вголос)\s+)?(?:за|роз)?смі[яї]в(?:ся)?|(?:(?:голосно|вголос)\s+)?смі[яї]л(?:ася|о|и|ися|ись?)|розсмішили|сміх)\b)'
+    flags: IGNORECASE
+    position: "before_match"
     confidence: 0.9
