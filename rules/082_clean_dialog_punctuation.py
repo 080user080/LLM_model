@@ -1,42 +1,59 @@
+# 082_clean_dialog_punctuation.py — очищення пунктуації діалогів (v3)
+# -*- coding: utf-8 -*-
 """
-082_clean_dialog_punctuation.py — очищення пунктуації діалогів
-1. Прибирає `, —` з початку атрибуцій
+1. Видаляє порожні рядки (#g1: .)
 2. Додає крапку до діалогів без пунктуації
-3. Нормалізує пробіли в лапках
+3. Очищає атрибуції
 """
 
 import re
 
 PHASE, PRIORITY, SCOPE, NAME = 82, 0, "fulltext", "clean_dialog_punctuation"
 
-def apply(text, ctx):
+def apply(text: str, ctx):
     lines = text.splitlines(keepends=True)
     out = []
     
-    for line in lines:
-        # 1. Прибрати `, —` з початку атрибуцій (#g1)
-        m = re.match(r'^(\s*)#g1\s*:\s*(.*)$', line)
-        if m:
-            body = m.group(2)
-            # Прибираємо початкові коми, тире, пробіли
-            cleaned = re.sub(r'^[,\—\–\-\s]+', '', body)
-            out.append(f"{m.group(1)}#g1: {cleaned}\n")
+    for ln in lines:
+        eol = "\n" if ln.endswith("\n") else ("\r\n" if ln.endswith("\r\n") else "")
+        
+        # Перевіряємо, чи це рядок з тегом
+        m = re.match(r'^(\s*)(#g\d+|\?)\s*:\s*(.*)$', ln)
+        if not m:
+            out.append(ln)
             continue
         
-        # 2. Додати крапку до діалогів без пунктуації (#gN, #g?)
-        m = re.match(r'^(\s*)(#g\d+|\?)\s*:\s*(.*)$', line)
-        if m and '«' in m.group(3):
-            dialog = m.group(3).strip()
-            # Якщо діалог закінчується на лапку без пунктуації
-            if dialog.endswith('»') and dialog[-2] not in '.!?…':
-                dialog = dialog[:-1] + '.»'
-            out.append(f"{m.group(1)}{m.group(2)}: {dialog}\n")
+        indent, tag, body = m.groups()
+        
+        # Видаляємо порожні рядки
+        if body.strip() in [".", ",", "—", "–", "-", ""]:
             continue
         
-        out.append(line)
+        # Для #g1 (оповідач) - прибираємо зайві символи
+        if tag == "#g1":
+            body = re.sub(r'^[,\—\–\-\s]+', '', body)  # Початок
+            body = re.sub(r'[,\—\–\-\s]+$', '', body)  # Кінець
+            body = body.strip()
+            
+            if not body:
+                continue
+            
+            # Додаємо крапку, якщо немає
+            if body and body[-1] not in '.!?…':
+                body += '.'
+            
+            out.append(f"{indent}{tag}: {body}{eol}")
+        
+        # Для діалогів (#gN, #g?)
+        else:
+            # Додаємо крапку до діалогів без пунктуації
+            if body and body[-1] not in '.!?…':
+                body += '.'
+            
+            out.append(f"{indent}{tag}: {body}{eol}")
     
-    return "".join(out)
-# В кінець файлу додай:
+    return ''.join(out)
+
 apply.phase = PHASE
 apply.priority = PRIORITY
 apply.scope = SCOPE
