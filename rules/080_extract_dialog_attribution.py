@@ -1,7 +1,7 @@
-# 080_extract_dialog_attribution.py — виділення атрибуції діалогу для TTS (v4)
+# 080_extract_dialog_attribution.py — виділення атрибуції діалогу для TTS (v5)
 # -*- coding: utf-8 -*-
 """
-ПРОСТА ВЕРСІЯ: Знаходить діалоги у лапках і відокремлює атрибуцію.
+Основна логіка: знаходить діалоги, атрибуції, об'єднує розділені діалоги
 """
 
 import re
@@ -24,36 +24,27 @@ def _norm(s: str) -> str:
          .replace('\u200B', '')
     )
 
-def _extract_dialog_and_attribution(body: str):
-    """Повертає (діалог, атрибуція, залишок)"""
-    body = _norm(body).strip()
+def _find_all_dialogs_in_line(body: str):
+    """Знаходить всі діалоги в рядку та позиції"""
+    body = _norm(body)
+    dialogs = []
+    i = 0
     
-    # Шукаємо перші лапки
-    quote_chars = ['«', '»', '"', '“', '”']
-    start = -1
-    for i, char in enumerate(body):
-        if char in quote_chars:
+    while i < len(body):
+        # Шукаємо відкриваючу лапку
+        if body[i] in ['«', '"', '“', "'"]:
             start = i
-            break
+            i += 1
+            # Шукаємо закриваючу лапку
+            while i < len(body) and body[i] not in ['»', '"', '”', "'"]:
+                i += 1
+            if i < len(body):
+                end = i
+                dialog_text = body[start:end+1]
+                dialogs.append((start, end, dialog_text))
+        i += 1
     
-    if start == -1:
-        return None, None, body  # Немає діалогу
-    
-    # Шукаємо закриваючу лапку
-    end = -1
-    for i in range(start + 1, len(body)):
-        if body[i] in quote_chars:
-            end = i
-            break
-    
-    if end == -1:
-        return None, None, body  # Лапка не закрита
-    
-    dialog = body[start:end+1].strip()
-    before = body[:start].strip()
-    after = body[end+1:].strip()
-    
-    return dialog, before, after
+    return dialogs
 
 def _is_attribution(text: str) -> bool:
     """Визначає, чи є текст атрибуцією"""
@@ -63,11 +54,12 @@ def _is_attribution(text: str) -> bool:
     # Дієслова мовлення
     speech_verbs = ['сказав', 'сказала', 'спитав', 'спитала', 'відповів', 'відповіла', 
                     'крикнув', 'крикнула', 'прошепотів', 'прошепотіла', 'додав', 'додала',
-                    'запитав', 'запитала', 'промовив', 'промовила', 'відповів', 'відповіла']
+                    'запитав', 'запитала', 'промовив', 'промовила', 'відповів', 'відповіла',
+                    'зазначив', 'зазначила', 'повторив', 'повторила', 'гукнув', 'гукнула']
     
     # Слова, які вказують на атрибуцію
     attribution_words = ['він', 'вона', 'вони', 'тато', 'мама', 'батько', 'мати', 
-                         'Пеґґі', 'Пеґ', 'Горас', 'Мері']
+                         'Пеґґі', 'Пеґ', 'Горас', 'Мері', 'мене', 'тебе', 'нам', 'вам']
     
     text_lower = text.lower()
     
@@ -75,23 +67,40 @@ def _is_attribution(text: str) -> bool:
     has_speech = any(verb in text_lower for verb in speech_verbs)
     
     # Перевірка на наявність слів атрибуції
-    has_attribution = any(word in text_lower for word in attribution_words)
+    has_attribution = any(re.search(rf'\b{re.escape(word)}\b', text_lower) 
+                         for word in attribution_words)
     
     # Атрибуція, якщо є дієслово мовлення І (ім'я або займенник)
     return has_speech and has_attribution
 
-def _clean_attribution(text: str) -> str:
-    """Очищає атрибуцію від зайвих символів"""
-    if not text:
-        return ""
+def _extract_attribution_and_dialog(text: str):
+    """Виділяє атрибуцію та діалог з тексту"""
+    text = _norm(text).strip()
+    dialogs = _find_all_dialogs_in_line(text)
     
-    # Прибираємо початкові коми, тире, пробіли
-    text = re.sub(r'^[,\—\–\-\s]+', '', text)
+    if not dialogs:
+        return text, None  # Тільки текст (можливо атрибуція)
     
-    # Прибираємо зайві символи в кінці
-    text = re.sub(r'[,\—\–\-\s]+$', '', text)
+    # Якщо є діалоги, розділяємо текст навколо них
+    result = []
+    current_pos = 0
     
-    return text.strip()
+    for start, end, dialog in dialogs:
+        # Текст перед діалогом
+        before = text[current_pos:start].strip()
+        if before:
+            result.append(('text', before))
+        
+        # Діалог
+        result.append(('dialog', dialog))
+        current_pos = end + 1
+    
+    # Текст після останнього діалогу
+    after = text[current_pos:].strip()
+    if after:
+        result.append(('text', after))
+    
+    return result
 
 def apply(text: str, ctx):
     lines = text.splitlines(keepends=True)
@@ -111,38 +120,31 @@ def apply(text: str, ctx):
             out.append(ln)
             continue
         
-        # Витягуємо діалог
-        dialog, before, after = _extract_dialog_and_attribution(body)
+        # Витягуємо всі частини рядка
+        parts = _extract_attribution_and_dialog(body)
         
-        if not dialog:
-            # Немає діалогу - залишаємо як є
+        if isinstance(parts, str):
+            # Немає діалогів
             out.append(ln)
             continue
         
-        # Текст перед діалогом (атрибуція)
-        if before and _is_attribution(before):
-            cleaned = _clean_attribution(before)
-            out.append(f"{indent}#g1: {cleaned}{eol}")
-        
-        # Сам діалог
-        out.append(f"{indent}#g{gid}: {dialog}{eol}")
-        
-        # Текст після діалогу
-        if after:
-            # Перевіряємо, чи це атрибуція
-            if _is_attribution(after):
-                cleaned = _clean_attribution(after)
-                out.append(f"{indent}#g1: {cleaned}{eol}")
+        # Обробляємо частини
+        for part_type, part_text in parts:
+            if part_type == 'dialog':
+                # Діалог - залишаємо з оригінальним тегом
+                out.append(f"{indent}#g{gid}: {part_text}{eol}")
             else:
-                # Якщо текст після діалогу не атрибуція, додаємо його до діалогу
-                # (це може бути продовження діалогу)
-                # Але спочатку перевіримо, чи це не наратив
-                if after.startswith('—') or after.startswith('--'):
-                    # Якщо починається з тире - це продовження діалогу
-                    out.append(f"{indent}#g{gid}: {dialog} {after}{eol}")
+                # Текст - перевіряємо, чи це атрибуція
+                if _is_attribution(part_text):
+                    # Очищаємо атрибуцію
+                    cleaned = re.sub(r'^[,\—\–\-\s]+', '', part_text)
+                    cleaned = re.sub(r'[,\—\–\-\s]+$', '', cleaned)
+                    if cleaned:
+                        out.append(f"{indent}#g1: {cleaned}{eol}")
                 else:
-                    # Інакше - це наратив
-                    out.append(f"{indent}#g1: {after}{eol}")
+                    # Не атрибуція - додаємо як #g1
+                    if part_text:
+                        out.append(f"{indent}#g1: {part_text}{eol}")
     
     return ''.join(out)
 
