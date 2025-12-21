@@ -1,29 +1,31 @@
 @echo off
 setlocal
 
-:: === GitHub Auto Upload (без підтверджень) ===
+:: Налаштування
 set REPO_PATH=%~dp0
-set COMMIT_MSG=auto-update
+set CURRENT_BRANCH=feature/gui-modular
+set TARGET_BRANCH=main
+set COMMIT_MSG=auto-merge: %date% %time%
+
 cd /d "%REPO_PATH%"
 
-echo === Updating GitHub repository ===
-
-:: Перевірка ініціалізації
-git rev-parse --is-inside-work-tree >nul 2>&1 || (
-    echo [ERROR] Це не git-репозиторій.
-    exit /b
-)
-
-:: Оновлення з GitHub (без rebase для безпеки)
-git pull --no-rebase
-
-:: Додавання всіх змін
+echo === Step 1: Saving changes to %CURRENT_BRANCH% ===
 git add -A
+git commit -m "%COMMIT_MSG%"
+git push origin %CURRENT_BRANCH%
 
-:: Комміт з фіксованим повідомленням
-git commit -m "%COMMIT_MSG%" >nul 2>&1
+echo === Step 2: Switching to %TARGET_BRANCH% ===
+git checkout %TARGET_BRANCH%
+git pull origin %TARGET_BRANCH%
 
-:: Відправка на GitHub
-git push
+echo === Step 3: Merging %CURRENT_BRANCH% into %TARGET_BRANCH% ===
+git merge %CURRENT_BRANCH% --no-edit
 
-echo === Done ===
+echo === Step 4: Pushing to GitHub ===
+git push origin %TARGET_BRANCH%
+
+echo === Step 5: Returning to %CURRENT_BRANCH% ===
+git checkout %CURRENT_BRANCH%
+
+echo === Done! Everything is in %TARGET_BRANCH% ===
+pause
