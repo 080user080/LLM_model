@@ -51,3 +51,9 @@ def apply(text, ctx):
         i += 1
     
     return "".join(out)
+
+# ДОДАЙ ЦЕ В КІНЕЦЬ:
+apply.phase = PHASE
+apply.priority = PRIORITY
+apply.scope = SCOPE
+apply.name = NAME

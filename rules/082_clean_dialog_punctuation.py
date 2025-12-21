@@ -36,3 +36,8 @@ def apply(text, ctx):
         out.append(line)
     
     return "".join(out)
+# В кінець файлу додай:
+apply.phase = PHASE
+apply.priority = PRIORITY
+apply.scope = SCOPE
+apply.name = NAME
