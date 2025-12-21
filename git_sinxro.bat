@@ -1,29 +1,27 @@
 @echo off
 setlocal
 
-:: === GitHub Auto Upload (без підтверджень) ===
 set REPO_PATH=%~dp0
-set COMMIT_MSG=auto-update
+set COMMIT_MSG=auto-update: %date% %time%
 cd /d "%REPO_PATH%"
 
 echo === Updating GitHub repository ===
 
-:: Перевірка ініціалізації
-git rev-parse --is-inside-work-tree >nul 2>&1 || (
-    echo [ERROR] Це не git-репозиторій.
+:: 1. Перевірка статусу (чи є взагалі зміни)
+git status --short | findstr /R "^" >nul
+if %errorlevel% neq 0 (
+    echo [INFO] Немає змін для оновлення.
     exit /b
 )
 
-:: Оновлення з GitHub (без rebase для безпеки)
+:: 2. Оновлення
 git pull --no-rebase
 
-:: Додавання всіх змін
+:: 3. Додавання та комміт (прибираємо >nul, щоб бачити помилки)
 git add -A
+git commit -m "%COMMIT_MSG%"
 
-:: Комміт з фіксованим повідомленням
-git commit -m "%COMMIT_MSG%" >nul 2>&1
-
-:: Відправка на GitHub
-git push
+:: 4. Відправка (явно вказуємо поточну гілку)
+git push origin HEAD
 
 echo === Done ===
