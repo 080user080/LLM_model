@@ -1,0 +1,116 @@
+# sfx_tags.yaml
+# Приклади правил з варіантами вставки (position)
+# position:
+#   - "precede_line"         -> вставити тег у окремому рядку *перед* знайденим рядком (для заголовків)
+#   - "after_punctuation_newline" -> вставити тег у окремому рядку *після* найближчої пунктуації праворуч від збігу
+#   - "after_match"          -> вставити тег одразу після кінця match (без пошуку пунктуації)
+#   - "after_paragraph"      -> вставити тег у кінці абзацу (як fallback)
+#   - "before_match"         -> вставити тег безпосередньо перед match (в середині рядка)
+#   - "previous_punctuation" -> знайти останній знак пунктуації ліворуч від match і вставити тег відразу після нього
+#   - "replace_match"        -> видалити match і замінити його на тег
+
+structural:
+  # === Структурні теги ===
+  - tag: "#r"                                # Тег, який вставляється перед назвою розділу/глави
+    keywords: '^\s*(РОЗДІЛ|ЧАСТИНА|ГЛАВА)\b.*$'   # Регулярний вираз для пошуку рядків, які починаються словами "РОЗДІЛ", "ЧАСТИНА" або "ГЛАВА"
+    flags: MULTILINE|IGNORECASE              # Прапори: пошук у багаторядковому тексті, без урахування регістру
+    post_tag: "#p2"                          # Тег, який вставляється після рядка з розділом (створює паузу після заголовку)
+    position: "precede_line"                 # Вказує, що тег #r потрібно вставляти перед рядком
+    confidence: 1.0                          # Рівень впевненості (для конфліктів між різними правилами)
+actions:
+  # === Дії/Звукові ефекти ===
+  - tag: "#d"                                # Тег звукового ефекту для дій з дверима (door)
+    keywords: '(\b\w+\s+(відчин(?:и(?:ти)?|ив(?:ся)?|ил[аи]|ено|илися)|заскрипіли(?:и(?:ти)?|ив(?:ся)?|ил[аи]|ено|илися))\s+двері\b|\b\w+\s+відчин(?:и(?:ти)?|ив(?:ся)?|ил[аи]|ено|илися)\b)'  
+    flags: IGNORECASE                        # Без урахування регістру (великі/малі літери не мають значення)
+    position: "after_match"    
+    confidence: 0.95                         # Рівень впевненості (використовується при злитті кількох збігів)
+  - tag: "#d1"
+    keywords: '(?:\b(?:зачин(?:и(?:ти)?|ив(?:ся)?|илася|яла|ил[аи]|ено|яли|яв|ялися)\s+двері)\b)'
+    flags: IGNORECASE
+    position: "after_match"
+    confidence: 0.88
+  - tag: "#v"
+    keywords: '(прогримів вибух|голосно бахнуло|постріл пролунав|грім вдарив)'
+    flags: IGNORECASE
+    position: "previous_punctuation"
+    confidence: 0.9
+  - tag: "#shot"
+    keywords: '(постріл пролунав)'
+    flags: IGNORECASE
+    position: "after_match"
+    confidence: 0.9
+  - tag: "#heart"
+    keywords: '(серце шалено калатало|прискорене серцебиття|завмерло серце|ритм серцебиття|б''ється його серце)'
+    flags: IGNORECASE
+    position: "previous_punctuation"
+    confidence: 0.85
+  - tag: "#rain"
+    keywords: '(зашумів дощ|падає дощ|шум дощу|пішов дощ|дощ трохи посипався)'
+    flags: IGNORECASE
+    position: "previous_punctuation"
+    confidence: 0.8
+  - tag: "#steps"
+    keywords: '(?:\b(?:зроб(?:ив|ила|или|ивши|илаши)\s+(?:два|кілька|декілька)?\s*крок(?:и|ів)\b|кроки\s+пролунали|чути\s+кроки\b)|важкі кроки)'
+    flags: IGNORECASE
+    position: "precede_line"
+    confidence: 0.8
+#  - tag: "#step"
+#    keywords: '(?:\b(?:зроб(?:ив|ила|или|ивши|илаши)\s+(?:два|кілька|декілька)?\s*крок(?:и|ів)\b|кроки\s+пролунали|чути\s+кроки|ступ(?:ив|ила|или|ивши)\b)|тупіт босих ніг)'
+#    flags: IGNORECASE
+#    position: "before_match"
+#    confidence: 0.9
+  - tag: "#ds"
+    keywords: '(засскрипіли двері)'
+    flags: IGNORECASE
+    position: "after_match"
+    confidence: 0.9
+  - tag: "#vodakup"
+    keywords: '(почу(?:ла|в) шипіння)'
+    flags: IGNORECASE
+    position: "previous_punctuation"
+    confidence: 0.9
+  - tag: "#podux1"
+    keywords: '(важке дихання|уривчасте дихання)'
+    flags: IGNORECASE
+    position: "before_match"
+    confidence: 0.9
+  - tag: "#podux2"
+    keywords: '(слабке дихання|\bвідчув(?:ла|ши)?\b[^\.!?]*?\bподих\b[^\.!?]*?\bна\s+сво[єє]му\s+обличчі\b)'
+    flags: IGNORECASE
+    position: "before_match"
+    confidence: 0.9
+#  - tag: "#plach"
+#    keywords: '(\b(?<!не\s)(?:(?:дитячий|гірко|щиро|сильно|нестримно|горезвісно|щасно|безутішно|голосно|тихо|зворушено)\s+)?(?:за|роз)?плакала(?:сь)?(?!\s+всередині)(?!\s*,\s*поки\s+майже\s+не\s+розплакалися)|(?:дитячий\s+)?плач(?!\s+припинився)(?!\s+всередині)\b)'
+#    flags: IGNORECASE
+#    position: "after_punctuation_newline"
+#    confidence: 0.9
+  - tag: "#cmix"
+    keywords: '(\b(?:(?<!не\s)(?<!якби\s)(?:(?:Він\s+)?(?:(?:голосно|вголос)\s+)?засмі[яї]в(?:ся)?|(?:(?:голосно|вголос)\s+)?смі[яї]л(?:ася|о|и|ися|ись?)|сміялися)\b|сміх(?!\s+зник)\b))'
+    flags: IGNORECASE
+    position: "after_punctuation_newline"
+    confidence: 0.9
+  - tag: "#cmix1"
+    keywords: '(\b(?<!не\s)(?<!якби\s)(?:(?:Він\s+)?(?:(?:голосно|вголос)\s+)?розсмі[яї]в(?:ся)?|розсмішило)\b)'
+    flags: IGNORECASE
+    position: "after_punctuation_newline"
+    confidence: 0.9
+  - tag: "#kik"
+    keywords: '(вдарив його ногою|стиснув руку в кулак і вдарив|вдарив його рукою)'
+    flags: IGNORECASE
+    position: "after_match"
+    confidence: 0.9
+  - tag: "#wind"
+    keywords: '(Вітер дув різко|\b(?:вітер|вітерець|буря|шторм|ураган)\b|\b(?<!не\s)(?:за|про|по|роз)?ду[вл]\b|\b(?<!не\s)дме\b)'
+    flags: IGNORECASE
+    position: "precede_line"
+    confidence: 0.9
+  - tag: "#fire"
+    keywords: '(багаття|розпалився вогонь)'
+    flags: IGNORECASE
+    position: "after_punctuation_newline"
+    confidence: 0.9
+  - tag: "#ydarm"
+    keywords: '(\b[ув]дари[вл]\s+молотком\b|\bудар[ую]?\s+молотком\b|\bудар[ивши]?\s+молотком\b)'
+    flags: IGNORECASE
+    position: "precede_line"
+    confidence: 0.9
