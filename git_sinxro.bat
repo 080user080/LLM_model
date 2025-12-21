@@ -18,4 +18,3 @@ git commit -m "update %date% %time%"
 git push origin HEAD:main
 
 echo === Done! Check GitHub main branch ===
-pause
