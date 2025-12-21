@@ -1,9 +1,7 @@
-# 080_extract_dialog_attribution.py — Остаточна версія з правильним перенесенням наративу
+# 080_extract_dialog_attribution.py — Спростіть версія без синтаксичних помилок
 # -*- coding: utf-8 -*-
 """
-Остаточна версія:
-- Якщо після атрибуції є нові лапки/тире - це нова репліка, залишаємо з оригінальним тегом
-- Якщо після атрибуції немає нових лапок - це наратив, переносимо весь текст до #g1
+Спрощена версія для виділення атрибуції діалогу без складних регулярних виразів.
 """
 
 import re
@@ -13,166 +11,192 @@ PHASE, PRIORITY, SCOPE, NAME = 80, 0, "fulltext", "extract_dialog_attribution"
 NBSP = "\u00A0"
 TAG_LINE = re.compile(r"^(\s*)#g(\d+|\?)\s*:\s*(.*)$", re.DOTALL)
 
-# Символи тире та лапок
-DASHES = r"[-–—\u2010\u2011\u2012\u2013\u2014\u2015]"
-QUOTES = r'[«»"„"'\'']'  # Всі типи лапок
-DIALOG_START = re.compile(rf"^\s*(?:{DASHES}|{QUOTES})", re.IGNORECASE)
+# Символи тире
+DASHES = "-\u2010\u2011\u2012\u2013\u2014\u2015"
 
-# Словники
-VERBS = (
-    r"сказав|сказала|сказали|відповів|відповіла|відповіли|спитав|спитала|спитали|"
-    r"запитав|запитала|запитали|крикнув|крикнула|крикнули|вигукнув|вигукнула|вигукнули|"
-    r"прошепотів|прошепотіла|прошепотіли|буркнув|буркнула|буркнули|промовив|промовила|"
-    r"мовив|мовила|мовили|звернувся|звернулась|звернулися|процедив|процедила|процедили|"
-    r"додав|додала|додали|зазначив|зазначила|зазначили|підтвердив|підтвердила|підтвердили|"
-    r"заперечив|заперечила|заперечили|погодився|погодилась|погодилися|промовляв|вимовив|"
-    r"повторив|повторила|повторили|висловив|висловила|висловили|шепотів|шепотіла|"
-    r"гукнув|гукнула|гукнули|відказав|відказала|відказали|запевнив|запевнила|запевнили|"
-    r"вибачився|вибачилась|вибачились|запитував|запитувала|звітував|звітувала|коментував|"
-    r"нагадав|нагадала|нагадали|зауважив|зауважила|зауважили|відреагував|пояснив|уточнив|"
-    r"викликав|спонукав|подумав|подумала|подумали|зітхнув|зітхнула|усміхнувся|розсміявся|"
-    r"відповів|відповіла|відповіли|вимовив|вимовила|вимовили|відповідав|відповідала|відповідали"
-)
+# Основні дієслова мовлення
+VERBS = [
+    'сказав', 'сказала', 'сказали', 'відповів', 'відповіла', 'відповіли',
+    'спитав', 'спитала', 'спитали', 'запитав', 'запитала', 'запитали',
+    'крикнув', 'крикнула', 'крикнули', 'вигукнув', 'вигукнула', 'вигукнули',
+    'прошепотів', 'прошепотіла', 'прошепотіли', 'буркнув', 'буркнула', 'буркнули',
+    'промовив', 'промовила', 'промовили', 'мовив', 'мовила', 'мовили',
+    'звернувся', 'звернулась', 'звернулися', 'процедив', 'процедила', 'процедили',
+    'додав', 'додала', 'додали', 'зазначив', 'зазначила', 'зазначили',
+    'підтвердив', 'підтвердила', 'підтвердили', 'заперечив', 'заперечила', 'заперечили',
+    'погодився', 'погодилась', 'погодилися', 'повторив', 'повторила', 'повторили',
+    'висловив', 'висловила', 'висловили', 'шепотів', 'шепотіла', 'шепотіли',
+    'гукнув', 'гукнула', 'гукнули', 'відказав', 'відказала', 'відказали',
+    'запевнив', 'запевнила', 'запевнили', 'нагадав', 'нагадала', 'нагадали',
+    'зауважив', 'зауважила', 'зауважили', 'пояснив', 'пояснила', 'пояснили',
+    'уточнив', 'уточнила', 'уточнили', 'він', 'вона', 'вони'
+]
 
-ADVERBS = (
-    r"тихо|голосно|повільно|швидко|різко|сумно|радісно|знову|нарешті|раптово|несподівано|"
-    r"спокійно|нервово|глибоко|легко|важко|ясно|невпевнено|впевнено|ласкаво|суворо|"
-    r"іронічно|серйозно|жартівливо|злісно|доброзичливо|невдоволено|здивовано|сердито|"
-    r"весело|лагідно|зосереджено|уважно|неохоче|байдуже|захоплено|тривожно|чітко"
-)
+# Прислівники
+ADVERBS = [
+    'тихо', 'голосно', 'повільно', 'швидко', 'різко', 'сумно', 'радісно',
+    'знову', 'нарешті', 'раптово', 'несподівано', 'спокійно', 'нервово',
+    'глибоко', 'легко', 'важко', 'ясно', 'невпевнено', 'впевнено',
+    'ласкаво', 'суворо', 'іронічно', 'серйозно', 'жартівливо', 'злісно',
+    'доброзичливо', 'невдоволено', 'здивовано', 'сердито', 'весело', 'лагідно'
+]
 
-SPEAKER = r'(?:[А-ЯЇІЄҐ][А-Яа-яЇїІіЄєҐґ\-\'\s]+|він|вона|вони|воно|ми|ви|я|ти)'
-
-# Основний патерн для атрибуції
-PATTERN_END = re.compile(
-    rf'(?P<replica>.*?)'  # Репліка
-    rf'\s*'  # Пробіли
-    rf'(?:[,;]?\s*{DASHES})'  # Розділювач
-    rf'\s*'  # Пробіли
-    rf'(?P<attr>(?:{ADVERBS}\s+)?{VERBS}\s+{SPEAKER})'  # Атрибуція
-    rf'(?P<tail>.*?)$',  # Залишок тексту
-    re.IGNORECASE | re.DOTALL
-)
-
-def _clean_dialog(text: str) -> str:
-    """Очищує діалог для TTS."""
+def _clean_text(text):
+    """Очищує текст від зайвих пробілів та NBSP."""
     if not text:
         return text
-    text = text.strip()
-    # Видаляємо зайві коми/тире в кінці
-    while text and text[-1] in ',;—–-':
-        text = text[:-1].rstrip()
-    # Додаємо крапку, якщо немає завершального знака
-    if text and text[-1] not in '.!?…':
-        if text[-1] not in '"\'»”':
-            text += '.'
-    return text
+    return text.replace(NBSP, ' ').strip()
 
-def _clean_narrative(text: str) -> str:
-    """Очищує наративний текст."""
+def _add_punctuation(text):
+    """Додає пунктуацію в кінець тексту, якщо потрібно."""
     if not text:
         return text
+    
     text = text.strip()
-    # Не додаємо крапку - може бути частина речення
-    return text
+    if not text:
+        return text
+    
+    # Якщо вже є пунктуація - не додаємо
+    if text[-1] in '.!?…':
+        return text
+    
+    # Якщо закінчується лапками - не додаємо
+    if text[-1] in '"\'»”':
+        return text
+    
+    return text + '.'
 
-def _process_line(body: str):
-    """Обробляє один рядок, повертає список частин."""
-    parts = []
-    
-    # Нормалізуємо пробіли
-    body = body.replace(NBSP, ' ').strip()
-    
-    # Шукаємо атрибуцію в кінці
-    match = PATTERN_END.search(body)
-    if match:
-        replica = match.group('replica')
-        attr = match.group('attr')
-        tail = match.group('tail').strip() if match.group('tail') else ''
-        
-        # Очищуємо репліку
-        replica_clean = _clean_dialog(replica)
-        if replica_clean:
-            parts.append(('replica', replica_clean))
-        
-        # Очищуємо атрибуцію
-        attr_clean = attr.strip()
-        if attr_clean:
-            # Капіталізуємо
-            if attr_clean[0].isalpha():
-                attr_clean = attr_clean[0].upper() + attr_clean[1:]
-            # Додаємо крапку, якщо немає
-            if attr_clean[-1] not in '.!?…':
-                attr_clean += '.'
-        
-        # Обробляємо залишок (tail)
-        if tail:
-            # Перевіряємо, чи tail починається з нового діалогу
-            if DIALOG_START.match(tail):
-                # Якщо так, то це нова репліка
-                tail_clean = _clean_dialog(tail)
-                if tail_clean:
-                    # Додаємо атрибуцію
-                    if attr_clean:
-                        parts.append(('attr', attr_clean))
-                    # Додаємо нову репліку
-                    parts.append(('replica', tail_clean))
-            else:
-                # Якщо tail не починається з діалогу - це наратив
-                # Додаємо весь tail до атрибуції
-                narrative = _clean_narrative(tail)
-                if narrative:
-                    if attr_clean:
-                        # Додаємо наратив до атрибуції
-                        # Видаляємо крапку з кінця атрибуції, якщо є
-                        if attr_clean.endswith('.'):
-                            attr_clean = attr_clean[:-1]
-                        attr_clean += ' ' + narrative
-                        # Додаємо крапку в кінець
-                        if not attr_clean.endswith('.'):
-                            attr_clean += '.'
-                    else:
-                        # Якщо атрибуції не було (малоймовірно)
-                        attr_clean = narrative
-                if attr_clean:
-                    parts.append(('attr', attr_clean))
-        else:
-            # Якщо tail немає, просто додаємо атрибуцію
-            if attr_clean:
-                parts.append(('attr', attr_clean))
-        
-        return parts
-    
-    # Якщо атрибуцію не знайдено, повертаємо оригінал
-    return [('replica', _clean_dialog(body))]
+def _capitalize(text):
+    """Робить першу літеру великою."""
+    if not text:
+        return text
+    return text[0].upper() + text[1:]
 
-def apply(text: str, ctx):
+def _find_attribution(text):
+    """
+    Знаходить атрибуцію в тексті.
+    Повертає (replica, attribution, остаток) або (None, None, None)
+    """
+    # Нормалізуємо текст
+    text = _clean_text(text)
+    
+    # Шукаємо тире в тексті
+    for dash in DASHES:
+        if dash in text:
+            # Знаходимо позицію останнього тире (щоб захопити всю атрибуцію)
+            dash_pos = text.rfind(dash)
+            
+            if dash_pos > 0:
+                replica = text[:dash_pos].strip()
+                after_dash = text[dash_pos+1:].strip()
+                
+                # Спробуємо знайти атрибуцію після тире
+                # Шукаємо дієслово в тексті після тире
+                for verb in VERBS:
+                    # Перевіряємо, чи починається текст після тире з дієслова (з урахуванням прислівників)
+                    lower_after = after_dash.lower()
+                    
+                    # Може бути прислівник перед дієсловом
+                    found_verb = False
+                    verb_pos = -1
+                    
+                    # Спочатку шукаємо сам дієслово
+                    if verb in lower_after:
+                        verb_pos = lower_after.find(verb)
+                        found_verb = True
+                    
+                    # Якщо знайшли дієслово
+                    if found_verb and verb_pos >= 0:
+                        # Знаходимо кінець атрибуції - шукаємо крапку після дієслова
+                        dot_pos = after_dash.find('.', verb_pos)
+                        if dot_pos == -1:
+                            dot_pos = len(after_dash)
+                        
+                        attribution = after_dash[:dot_pos].strip()
+                        remaining = after_dash[dot_pos:].strip()
+                        
+                        # Видаляємо крапку з початку залишку, якщо є
+                        if remaining.startswith('.'):
+                            remaining = remaining[1:].strip()
+                        
+                        # Перевіряємо, чи attribution містить дійсно атрибуцію
+                        # Повинно бути пробіл після дієслова (дієслово + хтось)
+                        if ' ' in attribution and len(attribution.split()) >= 2:
+                            # Очищаємо репліку
+                            replica = _add_punctuation(replica)
+                            
+                            # Форматуємо атрибуцію
+                            attribution = _capitalize(attribution)
+                            attribution = _add_punctuation(attribution)
+                            
+                            # Аналізуємо залишок
+                            if remaining:
+                                # Перевіряємо, чи залишок починається з нової репліки (лапки або тире)
+                                if (remaining.startswith('"') or remaining.startswith("'") or 
+                                    remaining.startswith('«') or remaining.startswith('„') or
+                                    remaining.startswith('"') or remaining[0] in DASHES):
+                                    # Це нова репліка
+                                    remaining = _add_punctuation(remaining)
+                                    return replica, attribution, remaining, True
+                                else:
+                                    # Це наратив, додаємо до атрибуції
+                                    if attribution.endswith('.'):
+                                        attribution = attribution[:-1]
+                                    attribution += ' ' + remaining
+                                    attribution = _add_punctuation(attribution)
+                                    remaining = ""
+                                    return replica, attribution, remaining, False
+                            else:
+                                return replica, attribution, "", False
+    
+    return None, None, None, False
+
+def apply(text, ctx):
+    """
+    Головна функція обробки тексту.
+    """
     lines = text.splitlines(keepends=True)
     output_lines = []
     extracted_count = 0
     
     for line in lines:
-        m = TAG_LINE.match(line)
-        if not m:
+        # Перевіряємо, чи це тегований рядок
+        tag_match = TAG_LINE.match(line)
+        if not tag_match:
             output_lines.append(line)
             continue
         
-        indent, gid, body = m.groups()
+        indent, gid, content = tag_match.groups()
         
-        # Пропускаємо оповідача та рядки, що не починаються з діалогу
-        if gid == "1" or not DIALOG_START.match(body):
+        # Пропускаємо рядки оповідача
+        if gid == "1":
             output_lines.append(line)
             continue
         
-        parts = _process_line(body)
+        # Шукаємо атрибуцію в рядку
+        replica, attribution, remaining, is_new_replica = _find_attribution(content)
         
-        for part_type, part_text in parts:
-            if part_type == 'attr':
-                output_lines.append(f"{indent}#g1: {part_text}\n")
-                extracted_count += 1
-            else:
-                output_lines.append(f"{indent}#g{gid}: {part_text}\n")
+        if replica and attribution:
+            # Додаємо репліку
+            output_lines.append(f"{indent}#g{gid}: {replica}\n")
+            
+            # Додаємо атрибуцію
+            output_lines.append(f"{indent}#g1: {attribution}\n")
+            extracted_count += 1
+            
+            # Додаємо залишок, якщо є
+            if remaining:
+                if is_new_replica:
+                    # Це нова репліка - той же тег
+                    output_lines.append(f"{indent}#g{gid}: {remaining}\n")
+                else:
+                    # Це вже додано до атрибуції
+                    pass
+        else:
+            # Якщо атрибуцію не знайшли, додаємо оригінальний рядок
+            output_lines.append(line)
     
+    # Логуємо результат
     try:
         ctx.logs.append(f"[080 extract_attribution] extracted: {extracted_count}")
     except Exception:
