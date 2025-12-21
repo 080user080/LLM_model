@@ -1,0 +1,259 @@
+# 080_extract_dialog_attribution.py — Виправлена версія
+# -*- coding: utf-8 -*-
+"""
+Остаточна версія з фіксами синтаксичних помилок.
+"""
+
+import re
+
+PHASE, PRIORITY, SCOPE, NAME = 80, 0, "fulltext", "extract_dialog_attribution"
+
+NBSP = "\u00A0"
+TAG_LINE = re.compile(r"^(\s*)#g(\d+|\?)\s*:\s*(.*)$", re.DOTALL)
+
+# Символи тире та лапок - виправлено синтаксис
+DASHES_CLS = r"[-–—\u2010\u2011\u2012\u2013\u2014\u2015]"
+QUOTES_CLS = r"[«»\"„“'’”]"
+DIALOG_START_CHECK = re.compile(rf"^\s*(?:{DASHES_CLS}|{QUOTES_CLS})", re.IGNORECASE)
+
+# Розширені словники
+VERBS = (
+    r"сказав|сказала|сказали|відповів|відповіла|відповіли|спитав|спитала|спитали|"
+    r"запитав|запитала|запитали|крикнув|крикнула|крикнули|вигукнув|вигукнула|вигукнули|"
+    r"прошепотів|прошепотіла|прошепотіли|буркнув|буркнула|буркнули|промовив|промовила|"
+    r"мовив|мовила|мовили|звернувся|звернулась|звернулися|процедив|процедила|процедили|"
+    r"додав|додала|додали|зазначив|зазначила|зазначили|підтвердив|підтвердила|підтвердили|"
+    r"заперечив|заперечила|заперечили|погодився|погодилась|погодилися|промовляв|вимовив|"
+    r"повторив|повторила|повторили|висловив|висловила|висловили|шепотів|шепотіла|"
+    r"гукнув|гукнула|гукнули|відказав|відказала|відказали|запевнив|запевнила|запевнили|"
+    r"вибачився|вибачилась|вибачились|запитував|запитувала|звітував|звітувала|коментував|"
+    r"нагадав|нагадала|нагадали|зауважив|зауважила|зауважили|відреагував|пояснив|уточнив|"
+    r"викликав|спонукав|подумав|подумала|подумали|зітхнув|зітхнула|усміхнувся|розсміявся|"
+    r"відповів|відповіла|відповіли|вимовив|вимовила|вимовили|відповідав|відповідала|відповідали"
+)
+
+ADVERBS = (
+    r"тихо|голосно|повільно|швидко|різко|сумно|радісно|знову|нарешті|раптово|несподівано|"
+    r"спокійно|нервово|глибоко|легко|важко|ясно|невпевнено|впевнено|ласкаво|суворо|"
+    r"іронічно|серйозно|жартівливо|злісно|доброзичливо|невдоволено|здивовано|сердито|"
+    r"весело|лагідно|зосереджено|уважно|неохоче|байдуже|захоплено|тривожно|чітко"
+)
+
+# Патерн для виконавця
+SPEAKER_PATTERN = r'(?:[А-ЯЇІЄҐ][А-Яа-яЇїІіЄєҐґ\-\'\s]+|він|вона|вони|воно|ми|ви|я|ти)'
+
+# ---- ОСНОВНІ ПАТЕРНИ ----
+# 1. Діалог з атрибуцією в кінці або в середині
+PATTERN_MAIN = re.compile(
+    rf'''
+    (?P<replica1>.*?)                      # Перша частина репліки
+    \s*                                    # Пробіли
+    (?:[,;]?\s*{DASHES_CLS}|\.\.\.)       # Розділювач: кома+тире або троє крапок
+    \s*                                    # Пробіли
+    (?P<attr>(?:{ADVERBS}\s+)?{VERBS}\s+{SPEAKER_PATTERN})  # Атрибуція
+    \s*                                    # Пробіли
+    (?:\.|$)                               # Крапка або кінець рядка
+    ''',
+    re.VERBOSE | re.IGNORECASE | re.DOTALL
+)
+
+# 2. Діалог з атрибуцією та другою реплікою (через тире)
+PATTERN_WITH_SECOND_REPLICA = re.compile(
+    rf'''
+    (?P<replica1>.*?)                      # Перша частина репліки
+    \s*                                    # Пробіли
+    (?:[,;]?\s*{DASHES_CLS})              # Розділювач: кома+тире
+    \s*                                    # Пробіли
+    (?P<attr>(?:{ADVERBS}\s+)?{VERBS}\s+{SPEAKER_PATTERN})  # Атрибуція
+    \s*                                    # Пробіли
+    (?:\.\s*)?                             # Опціональна крапка
+    {DASHES_CLS}                           # Друге тире
+    \s*                                    # Пробіли
+    (?P<replica2>.*)                       # Друга частина репліки
+    ''',
+    re.VERBOSE | re.IGNORECASE | re.DOTALL
+)
+
+# 3. Атрибуція перед діалогом
+PATTERN_BEFORE = re.compile(
+    rf'''
+    ^\s*                                   # Початок рядка
+    (?P<attr>(?:{ADVERBS}\s+)?{VERBS}\s+{SPEAKER_PATTERN})  # Атрибуція
+    \s*                                    # Пробіли
+    (?:[:,]\s*)                            # Двокрапка або кома
+    (?P<replica>.*)                        # Репліка
+    ''',
+    re.VERBOSE | re.IGNORECASE | re.DOTALL
+)
+
+# 4. Проста атрибуція в кінці без другої репліки
+PATTERN_SIMPLE_END = re.compile(
+    rf'''
+    (?P<replica>.*?)                       # Репліка
+    \s*                                    # Пробіли  
+    (?:[,;]?\s*{DASHES_CLS}\s*)           # Розділювач
+    (?P<attr>(?:{ADVERBS}\s+)?{VERBS}\s+{SPEAKER_PATTERN})  # Атрибуція
+    \s*\.?\s*$                             # Крапка та кінець рядка
+    ''',
+    re.VERBOSE | re.IGNORECASE | re.DOTALL
+)
+
+def _clean_replica(text: str) -> str:
+    """Очищає репліку для TTS."""
+    if not text:
+        return text
+    
+    text = text.strip()
+    
+    # Видаляємо зайві коми/тире в кінці
+    while text and text[-1] in ',;—–-':
+        text = text[:-1].rstrip()
+    
+    # Додаємо крапку, якщо немає закінчувального знака
+    if text and text[-1] not in '.!?…':
+        # Перевіряємо, чи не закінчується лапками
+        if text[-1] not in '"\'»”’':
+            text += '.'
+    
+    return text
+
+def _format_attribution(attr: str) -> str:
+    """Форматує атрибуцію: капіталізує та додає крапку."""
+    if not attr:
+        return attr
+    
+    attr = attr.strip()
+    
+    # Капіталізуємо першу літеру
+    if attr and attr[0].isalpha():
+        attr = attr[0].upper() + attr[1:]
+    
+    # Додаємо крапку, якщо немає
+    if attr and attr[-1] not in '.!?…':
+        attr += '.'
+    
+    return attr
+
+def _process_dialog_line(body: str) -> list:
+    """
+    Обробляє рядок діалогу та повертає список частин.
+    Кожна частина - це кортеж (type, text).
+    """
+    parts = []
+    
+    # Нормалізуємо пробіли
+    body = body.replace(NBSP, ' ').strip()
+    
+    # Спроба 1: Атрибуція з другою реплікою (найскладніший випадок)
+    match = PATTERN_WITH_SECOND_REPLICA.search(body)
+    if match:
+        replica1 = _clean_replica(match.group('replica1'))
+        attr = _format_attribution(match.group('attr'))
+        replica2 = _clean_replica(match.group('replica2'))
+        
+        if replica1:
+            parts.append(('replica', replica1))
+        if attr:
+            parts.append(('attr', attr))
+        if replica2:
+            parts.append(('replica', replica2))
+        
+        return parts
+    
+    # Спроба 2: Звичайна атрибуція в кінці
+    match = PATTERN_SIMPLE_END.search(body)
+    if match:
+        replica = _clean_replica(match.group('replica'))
+        attr = _format_attribution(match.group('attr'))
+        
+        if replica:
+            parts.append(('replica', replica))
+        if attr:
+            parts.append(('attr', attr))
+        
+        return parts
+    
+    # Спроба 3: Атрибуція перед діалогом
+    match = PATTERN_BEFORE.search(body)
+    if match:
+        attr = _format_attribution(match.group('attr'))
+        replica = _clean_replica(match.group('replica'))
+        
+        if attr:
+            parts.append(('attr', attr))
+        if replica:
+            parts.append(('replica', replica))
+        
+        return parts
+    
+    # Спроба 4: Головний патерн (резервний)
+    match = PATTERN_MAIN.search(body)
+    if match:
+        replica1 = _clean_replica(match.group('replica1'))
+        attr = _format_attribution(match.group('attr'))
+        
+        if replica1:
+            parts.append(('replica', replica1))
+        if attr:
+            parts.append(('attr', attr))
+        
+        # Шукаємо, чи є ще текст після атрибуції
+        end_pos = match.end()
+        if end_pos < len(body):
+            remaining = body[end_pos:].strip()
+            if remaining:
+                # Перевіряємо, чи це нова репліка (починається з лапок/тире)
+                if re.match(rf'^\s*(?:{QUOTES_CLS}|{DASHES_CLS})', remaining):
+                    remaining = _clean_replica(remaining)
+                    if remaining:
+                        parts.append(('replica', remaining))
+        
+        return parts
+    
+    # Якщо нічого не знайдено - повертаємо як є
+    return [('replica', _clean_replica(body))]
+
+def apply(text: str, ctx):
+    """
+    Головна функція обробки тексту.
+    """
+    lines = text.splitlines(keepends=True)
+    output_lines = []
+    extracted_count = 0
+    
+    for line in lines:
+        # Перевіряємо, чи це тегований рядок
+        tag_match = TAG_LINE.match(line)
+        if not tag_match:
+            output_lines.append(line)
+            continue
+        
+        indent, gid, content = tag_match.groups()
+        
+        # Пропускаємо рядки оповідача або недіалогові
+        if gid == "1" or not DIALOG_START_CHECK.match(content):
+            output_lines.append(line)
+            continue
+        
+        # Обробляємо діалог
+        parts = _process_dialog_line(content)
+        
+        # Формуємо нові рядки
+        for part_type, part_text in parts:
+            if part_type == 'attr':
+                # Атрибуція - додаємо як #g1
+                output_lines.append(f"{indent}#g1: {part_text}\n")
+                extracted_count += 1
+            else:
+                # Репліка - додаємо з оригінальним тегом
+                output_lines.append(f"{indent}#g{gid}: {part_text}\n")
+    
+    # Логуємо результат
+    try:
+        ctx.logs.append(f"[080 extract_attribution] extracted: {extracted_count}")
+    except Exception:
+        pass
+    
+    return "".join(output_lines)
+
+apply.phase, apply.priority, apply.scope, apply.name = PHASE, PRIORITY, SCOPE, NAME
