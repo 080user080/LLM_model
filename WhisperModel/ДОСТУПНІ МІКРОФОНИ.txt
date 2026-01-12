@@ -1,0 +1,43 @@
+ДОСТУПНІ МІКРОФОНИ:
+============================================================
+   0 Microsoft Sound Mapper - Input, MME (2 in, 0 out)
+>  1 Headset (Canyon TWS-8), MME (1 in, 0 out)
+   2 Microphone (USB2.0 Camera), MME (1 in, 0 out)
+   3 Microphone (Mic Device), MME (1 in, 0 out)
+   4 Microsoft Sound Mapper - Output, MME (0 in, 2 out)
+<  5 Headphones (Canyon TWS-8), MME (0 in, 2 out)
+   6 Speakers (Realtek(R) Audio), MME (0 in, 2 out)
+   7 Digital Audio (S/PDIF) (Realtek, MME (0 in, 2 out)
+   8 1 - DDC Display (AMD High Defin, MME (0 in, 2 out)
+   9 Primary Sound Capture Driver, Windows DirectSound (2 in, 0 out)
+  10 Headset (Canyon TWS-8), Windows DirectSound (1 in, 0 out)
+  11 Microphone (USB2.0 Camera), Windows DirectSound (1 in, 0 out)
+  12 Microphone (Mic Device), Windows DirectSound (1 in, 0 out)
+  13 Primary Sound Driver, Windows DirectSound (0 in, 2 out)
+  14 Headphones (Canyon TWS-8), Windows DirectSound (0 in, 2 out)
+  15 Speakers (Realtek(R) Audio), Windows DirectSound (0 in, 2 out)
+  16 Digital Audio (S/PDIF) (Realtek(R) Audio), Windows DirectSound (0 in, 2 out)
+  17 1 - DDC Display (AMD High Definition Audio Device), Windows DirectSound (0 in, 2 out)
+  18 Speakers (Realtek(R) Audio), Windows WASAPI (0 in, 2 out)
+  19 Digital Audio (S/PDIF) (Realtek(R) Audio), Windows WASAPI (0 in, 2 out)
+  20 Headphones (Canyon TWS-8), Windows WASAPI (0 in, 2 out)
+  21 1 - DDC Display (AMD High Definition Audio Device), Windows WASAPI (0 in, 2 out)
+  22 Microphone (USB2.0 Camera), Windows WASAPI (1 in, 0 out)
+  23 Microphone (Mic Device), Windows WASAPI (1 in, 0 out)
+  24 Headset (Canyon TWS-8), Windows WASAPI (1 in, 0 out)
+  25 Headphones (), Windows WDM-KS (0 in, 2 out)
+  26 Output (AMD HD Audio HDMI out #0), Windows WDM-KS (0 in, 2 out)
+  27 Speakers (HD Audio Speaker), Windows WDM-KS (0 in, 2 out)
+  28 SPDIF Out (HD Audio SPDIF out), Windows WDM-KS (0 in, 2 out)
+  29 Headset (@System32\drivers\bthhfenum.sys,#2;%1 Hands-Free%0
+;(Canyon TWS-8)), Windows WDM-KS (0 in, 1 out)
+  30 Headset (@System32\drivers\bthhfenum.sys,#2;%1 Hands-Free%0
+;(Canyon TWS-8)), Windows WDM-KS (1 in, 0 out)
+  31 Microphone (Mic Device), Windows WDM-KS (1 in, 0 out)
+  32 Microphone (USB2.0 Camera), Windows WDM-KS (1 in, 0 out)
+  33 Input (), Windows WDM-KS (2 in, 0 out)
+  34 Output (@System32\drivers\bthhfenum.sys,#4;%1 Hands-Free HF Audio%0
+;(Motorola edge 60 pro)), Windows WDM-KS (0 in, 1 out)
+  35 Input (@System32\drivers\bthhfenum.sys,#4;%1 Hands-Free HF Audio%0
+;(Motorola edge 60 pro)), Windows WDM-KS (1 in, 0 out)
+============================================================

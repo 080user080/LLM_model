@@ -1,0 +1,460 @@
+import os
+import sys
+import importlib
+import inspect
+from pathlib import Path
+import time
+from colorama import Fore, Back, Style, init
+
+# Ініціалізувати colorama
+init(autoreset=True)
+
+# Додати шляхи до CUDA бібліотек
+venv_path = sys.prefix
+nvidia_paths = [
+    os.path.join(venv_path, 'Lib', 'site-packages', 'nvidia', 'cublas', 'bin'),
+    os.path.join(venv_path, 'Lib', 'site-packages', 'nvidia', 'cudnn', 'bin'),
+    os.path.join(venv_path, 'Lib', 'site-packages', 'nvidia', 'cuda_runtime', 'bin'),
+]
+
+for path in nvidia_paths:
+    if os.path.exists(path):
+        os.environ['PATH'] = path + os.pathsep + os.environ['PATH']
+        try:
+            os.add_dll_directory(path)
+        except:
+            pass
+
+import sounddevice as sd
+import numpy as np
+from faster_whisper import WhisperModel
+import requests
+import json
+import re
+
+# Налаштування
+SAMPLE_RATE = 16000
+LISTEN_DURATION = 4  # Скільки слухати один фрагмент
+LM_STUDIO_URL = "http://localhost:1234/v1/chat/completions"
+
+# Мінімальна гучність для активації
+VOLUME_THRESHOLD = 0.01
+
+# Список слів/фраз для ігнорування (повністю ігноруємо ці фрази)
+IGNORE_PHRASES = {
+    # Подяки
+    "дякую", "спасибі", "дякую за перегляд", "дякую за перегляд!",
+    "дякую!", "дякую.", "спасибі!", "спасибі.",
+    
+    # Короткі відповіді
+    "так", "ні", "ну", "ага", "угу", "ок", "окей",
+    "так ось", "ось так", "ось", "це", "хм", "хм!",
+    
+    # Не зрозуміле
+    "максим менечовє", "темена нечовє", "злосиньод неджі",
+    "не дякую", "зрозумів", "ясно", "все", "все воно",
+    
+    # Технічні
+    "залиште мікрофон", "залиште мікрофон, так",
+}
+
+# Мінімальна довжина команди (символів без пробілів)
+MIN_COMMAND_LENGTH = 4
+
+# Глобальні змінні для core модулів
+dispatcher = None
+cache_manager = None
+streaming_handler = None
+
+class FunctionRegistry:
+    """Реєстр функцій з автоматичним завантаженням"""
+    
+    def __init__(self):
+        self.functions = {}
+        self.core_modules = {}
+        self.load_all_modules()
+    
+    def load_all_modules(self):
+        """Автоматично завантажити всі модулі з папки functions"""
+        functions_dir = Path(__file__).parent / "functions"
+        
+        if not functions_dir.exists():
+            print(f"{Fore.YELLOW}⚠️  Папка functions не знайдена. Створюю...")
+            functions_dir.mkdir()
+            (functions_dir / "__init__.py").touch()
+            return
+        
+        # Спочатку завантажити CORE модулі (core_*.py)
+        print(f"{Fore.CYAN}📦 Завантаження core модулів...")
+        core_files = sorted(functions_dir.glob("core_*.py"))
+        
+        for file_path in core_files:
+            module_name = file_path.stem
+            try:
+                spec = importlib.util.spec_from_file_location(module_name, file_path)
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                
+                self.core_modules[module_name] = module
+                print(f"{Fore.MAGENTA}⚡ Core: {Fore.CYAN}{module_name}")
+                
+                if hasattr(module, 'init'):
+                    module.init()
+                    
+            except Exception as e:
+                print(f"{Fore.RED}❌ Помилка завантаження {module_name}: {e}")
+        
+        # Завантажити звичайні функції (aaa_*.py)
+        print(f"\n{Fore.CYAN}📦 Завантаження функцій...")
+        for file_path in sorted(functions_dir.glob("aaa_*.py")):
+            module_name = file_path.stem
+            try:
+                spec = importlib.util.spec_from_file_location(module_name, file_path)
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                
+                for name, obj in inspect.getmembers(module):
+                    if inspect.isfunction(obj) and hasattr(obj, '_is_llm_function'):
+                        func_info = {
+                            'function': obj,
+                            'name': obj._function_name,
+                            'description': obj._description,
+                            'parameters': obj._parameters
+                        }
+                        self.functions[obj._function_name] = func_info
+                        print(f"{Fore.GREEN}✅ {Fore.CYAN}{obj._function_name}")
+            
+            except Exception as e:
+                print(f"{Fore.RED}❌ Помилка завантаження {module_name}: {e}")
+    
+    def get_core_module(self, name):
+        """Отримати core модуль за назвою"""
+        for module_name, module in self.core_modules.items():
+            if name in module_name:
+                return module
+        return None
+    
+    def get_system_prompt(self):
+        """Згенерувати system prompt з описом всіх функцій"""
+        if not self.functions:
+            return "Ти корисний асистент на ім'я Клара. Відповідай українською мовою коротко і по суті."
+        
+        prompt = """Ти корисний асистент на ім'я Клара. Відповідай українською мовою коротко і по суті.
+
+ДОСТУПНІ ФУНКЦІЇ:
+"""
+        for func_name, func_info in self.functions.items():
+            prompt += f"\n{func_info['name']} - {func_info['description']}\n"
+            prompt += "Параметри:\n"
+            for param_name, param_desc in func_info['parameters'].items():
+                prompt += f"  - {param_name}: {param_desc}\n"
+        
+        prompt += """
+ВАЖЛИВО! Коли користувач просить виконати функцію, відповідай ТІЛЬКИ чистим JSON:
+{"action":"назва_функції","параметр1":"значення1","параметр2":"значення2"}
+
+Приклад: {"action":"create_file","filename":"test.txt","content":"Привіт світ"}
+
+Якщо це звичайна розмова, просто відповідай текстом."""
+        
+        return prompt
+    
+    def execute_function(self, action, params):
+        """Виконати функцію за назвою"""
+        if action not in self.functions:
+            return f"{Fore.RED}❌ Функція {action} не знайдена"
+        
+        try:
+            func = self.functions[action]['function']
+            result = func(**params)
+            return result
+        except Exception as e:
+            return f"{Fore.RED}❌ Помилка виконання {action}: {str(e)}"
+
+def extract_json_from_text(text):
+    """Витягти JSON з тексту"""
+    text = re.sub(r'<\|[^|]+\|>', '', text)
+    text = re.sub(r'assistant|channel|commentary.*?(?=\{)|to=functions\.\w+|constrain|message', '', text)
+    
+    json_match = re.search(r'```json\s*(.*?)\s*```', text, re.DOTALL)
+    if json_match:
+        return json_match.group(1).strip()
+    
+    json_match = re.search(r'```\s*(.*?)\s*```', text, re.DOTALL)
+    if json_match:
+        return json_match.group(1).strip()
+    
+    json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', text, re.DOTALL)
+    if json_match:
+        return json_match.group(0).strip()
+    
+    return text.strip()
+
+def ask_llm(user_message, conversation_history, system_prompt):
+    """Відправити запит до LM Studio"""
+    try:
+        messages = [{"role": "system", "content": system_prompt}]
+        messages.extend(conversation_history)
+        messages.append({"role": "user", "content": user_message})
+        
+        response = requests.post(LM_STUDIO_URL, 
+            json={
+                "messages": messages,
+                "temperature": 0.3,
+                "max_tokens": 1024,
+                "stream": False
+            },
+            timeout=60
+        )
+        
+        if response.status_code == 200:
+            return response.json()['choices'][0]['message']['content']
+        else:
+            return f"Помилка: {response.status_code}"
+    except Exception as e:
+        return f"{Fore.RED}❌ Помилка: {str(e)}"
+
+def process_llm_response(response_text, registry):
+    """Обробити відповідь LLM і виконати функції"""
+    json_text = extract_json_from_text(response_text)
+    
+    try:
+        response_json = json.loads(json_text)
+        
+        if "action" in response_json:
+            action = response_json.pop("action")
+            result = registry.execute_function(action, response_json)
+            return result
+    except json.JSONDecodeError:
+        pass
+    
+    return response_text
+
+def check_volume(audio):
+    """Перевірити чи є звук (не тиша)"""
+    return np.abs(audio).mean() > VOLUME_THRESHOLD
+
+def should_ignore_command(text):
+    """Перевірити чи команду потрібно ігнорувати"""
+    if not text or not text.strip():
+        return True
+    
+    # Очистити текст
+    cleaned = text.strip().lower()
+    cleaned = re.sub(r'[^\w\sа-яґєії]', '', cleaned, flags=re.IGNORECASE)
+    
+    # Перевірити довжину (без пробілів)
+    text_without_spaces = re.sub(r'\s+', '', cleaned)
+    if len(text_without_spaces) < MIN_COMMAND_LENGTH:
+        return True
+    
+    # Перевірити чи це ігнорована фраза
+    for phrase in IGNORE_PHRASES:
+        phrase_lower = phrase.lower().strip()
+        if phrase_lower in cleaned:
+            # Якщо це ТОЧНО ця фраза або фраза починається/закінчується цим
+            if cleaned == phrase_lower or \
+               cleaned.startswith(phrase_lower + " ") or \
+               cleaned.endswith(" " + phrase_lower) or \
+               f" {phrase_lower} " in f" {cleaned} ":
+                return True
+    
+    # Якщо текст містить лише цифри або символи
+    if re.match(r'^[\d\s]+$', cleaned):
+        return True
+    
+    return False
+
+class VoiceAssistant:
+    def __init__(self, whisper_model, registry, system_prompt):
+        self.whisper_model = whisper_model
+        self.registry = registry
+        self.system_prompt = system_prompt
+        self.conversation_history = []
+        self.is_listening = True
+        self.last_command_time = 0
+        self.command_cooldown = 2  # Секунд між командами
+        
+        # Отримати core модулі
+        global dispatcher, cache_manager, streaming_handler
+        dispatcher_module = registry.get_core_module('dispatcher')
+        if dispatcher_module:
+            dispatcher = dispatcher_module.Dispatcher(registry)
+            print(f"{Fore.MAGENTA}⚡ Диспетчер активовано")
+        
+        cache_module = registry.get_core_module('cache')
+        if cache_module:
+            cache_manager = cache_module.CacheManager()
+            print(f"{Fore.MAGENTA}⚡ Кеш активовано")
+        
+        streaming_module = registry.get_core_module('streaming')
+        if streaming_module:
+            streaming_handler = streaming_module.StreamingHandler(LM_STUDIO_URL)
+            print(f"{Fore.MAGENTA}⚡ Стрімінг активовано")
+        
+    def listen_continuously(self):
+        """Постійно слухати мікрофон"""
+        print(f"\n{Back.CYAN}{Fore.BLACK} 🎧 РЕЖИМ ПРОСЛУХОВУВАННЯ {Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}💡 Говоріть команди. Короткі слова і подяки ігноруються.")
+        print(f"{Fore.YELLOW}💡 Приклад: 'відкрий блокнот', 'запусти калькулятор'")
+        print(f"{Fore.LIGHTBLACK_EX}💡 Ctrl+C для виходу\n")
+        
+        while self.is_listening:
+            try:
+                # Записати фрагмент
+                audio = sd.rec(
+                    int(LISTEN_DURATION * SAMPLE_RATE),
+                    samplerate=SAMPLE_RATE,
+                    channels=1,
+                    dtype=np.float32,
+                    blocking=True
+                )
+                audio = np.squeeze(audio)
+                
+                # Перевірити чи є звук (захист від тиші)
+                if not check_volume(audio):
+                    continue
+                
+                # Розпізнати
+                segments, info = self.whisper_model.transcribe(
+                    audio,
+                    language="uk",
+                    beam_size=1,
+                    vad_filter=True
+                )
+                
+                text = ""
+                for seg in segments:
+                    text += seg.text
+                
+                if not text.strip():
+                    continue
+                
+                # Показати що почули
+                print(f"{Fore.LIGHTBLACK_EX}🔉 {text}")
+                
+                # Перевірити чи не ігнорувати команду
+                if should_ignore_command(text):
+                    print(f"{Fore.LIGHTBLACK_EX}⏭️  Ігноровано (фільтр)")
+                    continue
+                
+                # Кулдаун між командами
+                current_time = time.time()
+                if current_time - self.last_command_time < self.command_cooldown:
+                    print(f"{Fore.LIGHTBLACK_EX}⏭️  Занадто швидко, чекаю...")
+                    continue
+                
+                # Обробити команду
+                print(f"\n{Back.GREEN}{Fore.BLACK} ✨ ОБРОБКА КОМАНДИ {Style.RESET_ALL}")
+                print(f"{Fore.BLUE}💬 [Команда]: {Fore.WHITE}{text}")
+                
+                self.last_command_time = current_time
+                self.process_command(text)
+                
+                print(f"\n{Fore.CYAN}🎧 Продовжую слухати...\n")
+                
+            except KeyboardInterrupt:
+                print(f"\n\n{Fore.YELLOW}👋 Вимикаюсь...")
+                self.is_listening = False
+                break
+            except Exception as e:
+                print(f"{Fore.RED}❌ Помилка: {e}")
+                time.sleep(0.5)
+    
+    def process_command(self, command_text):
+        """Обробити команду"""
+        try:
+            start_total = time.time()
+            
+            # Перевірка кешу
+            if cache_manager:
+                cached_result = cache_manager.get(command_text)
+                if cached_result:
+                    print(f"{Fore.YELLOW}⚡ [Кеш]")
+                    print(f"{Fore.GREEN}🤖 [Клара]: {Fore.WHITE}{cached_result}")
+                    print(f"{Fore.LIGHTBLACK_EX}⏱️  0.00с")
+                    return
+            
+            # Спробувати швидкий маршрут
+            if dispatcher:
+                quick_result = dispatcher.try_quick_route(command_text)
+                if quick_result:
+                    elapsed = time.time() - start_total
+                    print(f"{Fore.YELLOW}⚡ [Швидкий маршрут]")
+                    print(f"{Fore.GREEN}🤖 [Клара]: {Fore.WHITE}{quick_result}")
+                    print(f"{Fore.LIGHTBLACK_EX}⏱️  {elapsed:.2f}с")
+                    
+                    if cache_manager:
+                        cache_manager.set(command_text, quick_result)
+                    return
+            
+            # Звичайний LLM маршрут
+            self.conversation_history.append({"role": "user", "content": command_text})
+            
+            print(f"{Fore.MAGENTA}🤔 [Думаю...]")
+            start_llm = time.time()
+            
+            answer = ask_llm(command_text, self.conversation_history, self.system_prompt)
+            llm_time = time.time() - start_llm
+            
+            final_answer = process_llm_response(answer, self.registry)
+            
+            self.conversation_history.append({"role": "assistant", "content": answer})
+            
+            if cache_manager and not answer.startswith("{"):
+                cache_manager.set(command_text, final_answer)
+            
+            elapsed = time.time() - start_total
+            print(f"{Fore.GREEN}🤖 [Клара]: {Fore.WHITE}{final_answer}")
+            print(f"{Fore.LIGHTBLACK_EX}⏱️  {elapsed:.2f}с (LLM: {llm_time:.2f}с)")
+            
+            if len(self.conversation_history) > 10:
+                self.conversation_history = self.conversation_history[-10:]
+                
+        except Exception as e:
+            print(f"{Fore.RED}❌ Помилка: {e}")
+
+# ==================== ГОЛОВНА ПРОГРАМА ====================
+
+print(f"{Back.BLUE}{Fore.WHITE}{'='*60}")
+print(f"{Back.BLUE}{Fore.WHITE}🤖 КЛАРА - Голосовий Асистент (БЕЗ АКТИВАЦІЙНОГО СЛОВА){Style.RESET_ALL}")
+print(f"{Back.BLUE}{Fore.WHITE}{'='*60}{Style.RESET_ALL}")
+
+print(f"\n{Fore.CYAN}🔧 Завантаження модулів...")
+start_time = time.time()
+registry = FunctionRegistry()
+load_time = time.time() - start_time
+print(f"{Fore.LIGHTBLACK_EX}⏱️  {load_time:.2f}с")
+
+print(f"\n{Fore.CYAN}🎤 Завантаження Whisper...")
+start_time = time.time()
+whisper_model = WhisperModel("medium", device="cuda", compute_type="float16")
+whisper_time = time.time() - start_time
+print(f"{Fore.LIGHTBLACK_EX}⏱️  {whisper_time:.2f}с")
+
+print(f"\n{Fore.CYAN}🔌 Підключення до LM Studio...")
+try:
+    test_response = requests.get("http://localhost:1234/v1/models", timeout=5)
+    if test_response.status_code == 200:
+        models = test_response.json()
+        print(f"{Fore.GREEN}✅ {Fore.YELLOW}{models['data'][0]['id']}")
+    else:
+        print(f"{Fore.YELLOW}⚠️  Проблеми з API")
+except:
+    print(f"{Fore.RED}❌ LM Studio не запущений!")
+    exit()
+
+print(f"\n{Fore.YELLOW}{'='*60}")
+print(f"{Fore.YELLOW}📦 Функцій: {Fore.WHITE}{len(registry.functions)}")
+for func_name in registry.functions.keys():
+    print(f"{Fore.CYAN}   • {func_name}")
+print(f"{Fore.YELLOW}{'='*60}{Style.RESET_ALL}")
+
+print(f"\n{Fore.MAGENTA}📝 Фільтри:")
+print(f"{Fore.CYAN}   • Ігнорує слова коротші за {MIN_COMMAND_LENGTH} символів")
+print(f"{Fore.CYAN}   • Ігнорує {len(IGNORE_PHRASES)} фраз (дякую, так, ні, тощо)")
+print(f"{Fore.CYAN}   • Кулдаун: 2 сек між командами")
+
+system_prompt = registry.get_system_prompt()
+assistant = VoiceAssistant(whisper_model, registry, system_prompt)
+assistant.listen_continuously()

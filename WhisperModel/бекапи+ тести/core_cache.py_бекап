@@ -1,0 +1,89 @@
+import json
+from pathlib import Path
+from datetime import datetime, timedelta
+from colorama import Fore
+
+class CacheManager:
+    """Менеджер кешування відповідей"""
+    
+    def __init__(self, cache_duration_hours=24):
+        self.cache_file = Path(__file__).parent / "cache_data.json"
+        self.cache_duration = timedelta(hours=cache_duration_hours)
+        self.cache = self._load_cache()
+        print(f"{Fore.MAGENTA}💾 Кеш: {len(self.cache)} записів")
+    
+    def _load_cache(self):
+        """Завантажити кеш з файлу"""
+        if self.cache_file.exists():
+            try:
+                with open(self.cache_file, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            except:
+                return {}
+        return {}
+    
+    def _save_cache(self):
+        """Зберегти кеш"""
+        try:
+            with open(self.cache_file, 'w', encoding='utf-8') as f:
+                json.dump(self.cache, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"{Fore.RED}❌ Помилка кешу: {e}")
+    
+    def get(self, command):
+        """Отримати з кешу"""
+        key = command.lower().strip()
+        
+        if key in self.cache:
+            entry = self.cache[key]
+            timestamp = datetime.fromisoformat(entry['timestamp'])
+            
+            if datetime.now() - timestamp < self.cache_duration:
+                entry['hits'] = entry.get('hits', 0) + 1
+                self._save_cache()
+                return entry['response']
+            else:
+                del self.cache[key]
+                self._save_cache()
+        
+        return None
+    
+    def set(self, command, response):
+        """Додати в кеш"""
+        key = command.lower().strip()
+        self.cache[key] = {
+            'response': response,
+            'timestamp': datetime.now().isoformat(),
+            'hits': 0
+        }
+        self._save_cache()
+
+def init():
+    pass
+# ```
+
+## Ключові зміни:
+
+### ✅ **Активація тепер працює правильно:**
+#- Слухає постійно (4 сек фрагменти)
+#- Показує сірим текстом що чує
+#- **Активується ТІЛЬКИ на "КЛАРА"** (легко вимовляти і розпізнається)
+#- Два режими:
+#  - "Клара відкрий блокнот" - виконує одразу
+#  - "Клара" (пауза) - чекає команду 6 секунд
+
+### ✅ **Захист від помилкових спрацювань:**
+#- Перевірка гучності (ігнорує тишу)
+#- Чітке активаційне слово
+#- Не реагує на фоновий шум з динаміків
+
+### ✅ **Порядок core_ модулів:**
+#- Завантажуються в **алфавітному порядку** імені файлу
+#- Можеш називати: `core_01_dispatcher.py`, `core_02_cache.py`
+#- Або просто `core_dispatcher.py` - порядок не критичний
+
+### 🎯 **Як працює:**
+
+# Слухає  Чує "клара відкрий блокнот"  ✨ АКТИВОВАНО  Виконує
+# Слухає  Чує "запусти браузер"  Ігнорує (немає "клара")
+# Слухає  Чує тишу  Ігнорує

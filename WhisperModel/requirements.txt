@@ -1,0 +1,21 @@
+# Залежності для аудіо фільтрації
+# Встановлення: pip install -r requirements_audio.txt
+
+# Основні
+numpy
+scipy
+colorama
+
+# Аудіо обробка
+sounddevice
+noisereduce
+
+# PyTorch (для CUDA 13.0 - встанови окремо!)
+# pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+
+# Transformers для w2v-bert-uk
+transformers
+accelerate
+
+# Silero VAD (встановиться автоматично через torch.hub)
+# Не потрібно додавати в requirements

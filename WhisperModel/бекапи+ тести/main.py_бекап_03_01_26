@@ -1,0 +1,414 @@
+# main.py
+"""Головний файл запуску"""
+import os
+import sys
+import time
+from pathlib import Path
+from colorama import Fore, Back, Style, init
+import threading
+
+# Ініціалізувати colorama
+init(autoreset=True)
+
+
+# Додати шляхи до CUDA бібліотек
+venv_path = sys.prefix
+nvidia_paths = [
+    os.path.join(venv_path, 'Lib', 'site-packages', 'nvidia', 'cublas', 'bin'),
+    os.path.join(venv_path, 'Lib', 'site-packages', 'nvidia', 'cudnn', 'bin'),
+    os.path.join(venv_path, 'Lib', 'site-packages', 'nvidia', 'cuda_runtime', 'bin'),
+]
+
+for path in nvidia_paths:
+    if os.path.exists(path):
+        os.environ['PATH'] = path + os.pathsep + os.environ['PATH']
+        try:
+            os.add_dll_directory(path)
+        except:
+            pass
+
+import sounddevice as sd
+import numpy as np
+import torch
+from transformers import Wav2Vec2BertForCTC, AutoProcessor
+import requests
+
+# Імпорт модулів
+from functions.logic_core import FunctionRegistry
+from functions.logic_commands import VoiceAssistant
+from functions.logic_audio import (
+    should_ignore_command, correct_whisper_text, 
+    check_volume, check_activation_word, remove_activation_word,
+    text_similarity  # Додайте цей імпорт
+)
+from functions.config import (
+    SAMPLE_RATE, LISTEN_DURATION, VOLUME_THRESHOLD,
+    ACTIVATION_WORD, ACTIVATION_LISTEN_DURATION, COMMAND_LISTEN_DURATION, MICROPHONE_DEVICE_ID  # 👈 ДОДАЙТЕ
+)
+# Додайте в імпорти в main.py та aaa_voice_input.py:
+from functions.config import MICROPHONE_DEVICE_ID
+
+# 👇 ДОДАЙТЕ ТУТ
+print("\n" + "="*60)
+print("🎤 ДОСТУПНІ МІКРОФОНИ:")
+print("="*60)
+print(sd.query_devices())
+print("="*60 + "\n")
+
+# 👇 ДОДАЙТЕ ЦЕ
+if MICROPHONE_DEVICE_ID is not None:
+    print(f"{Fore.YELLOW}🎤 Вибрано мікрофон #{MICROPHONE_DEVICE_ID}")
+    device_info = sd.query_devices(MICROPHONE_DEVICE_ID)
+    print(f"   Назва: {device_info['name']}")
+    print(f"   Канали: {device_info['max_input_channels']}")
+else:
+    print(f"{Fore.YELLOW}🎤 Використовується системний мікрофон за замовчуванням")
+    default_input = sd.query_devices(kind='input')
+    print(f"   Назва: {default_input['name']}")
+print()
+
+# В main.py після виводу мікрофонів
+print("🧪 Тестовий запис 2 секунди...")
+test_audio = sd.rec(
+    int(2 * SAMPLE_RATE),
+    samplerate=SAMPLE_RATE,
+    channels=1,
+    dtype=np.float32,
+    device=MICROPHONE_DEVICE_ID,
+    blocking=True
+)
+volume = np.abs(test_audio).mean()
+print(f"   Середня гучність: {volume:.6f}")
+print(f"   Поріг: {VOLUME_THRESHOLD}")
+if volume > VOLUME_THRESHOLD:
+    print(f"   ✅ Мікрофон працює!")
+else:
+    print(f"   ❌ Занадто тихо або мікрофон не працює")
+print()
+
+def load_w2v_model():
+    """Завантажити w2v-bert-uk модель"""
+    try:
+        model_name = 'Yehor/w2v-bert-uk-v2.1'
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        
+        print(f"   🔧 Модель: {model_name}")
+        print(f"   🎯 Пристрій: {device}")
+        
+        # Завантажити процесор
+        processor = AutoProcessor.from_pretrained(model_name)
+        
+        # Завантажити модель
+        model = Wav2Vec2BertForCTC.from_pretrained(model_name)
+        model = model.to(device)
+        model.eval()
+        
+        print(f"   ✅ Модель завантажена")
+        
+        return model, processor, device
+        
+    except Exception as e:
+        print(f"   ❌ Помилка завантаження моделі: {e}")
+        raise
+
+def transcribe_audio(audio, model, processor, device):
+    """Транскрибувати аудіо за допомогою w2v-bert-uk"""
+    try:
+        # Конвертувати аудіо в тензор
+        audio_tensor = torch.from_numpy(audio).float()
+        
+        # Нормалізувати аудіо
+        if torch.max(torch.abs(audio_tensor)) > 0:
+            audio_tensor = audio_tensor / torch.max(torch.abs(audio_tensor))
+        
+        # Обробити процесором
+        inputs = processor(
+            audio_tensor.numpy(), 
+            sampling_rate=SAMPLE_RATE, 
+            return_tensors="pt",
+            padding=True
+        )
+        
+        # Знайти правильний ключ для вводу
+        input_key = None
+        for key in ['input_values', 'input_features']:
+            if key in inputs:
+                input_key = key
+                break
+        
+        if not input_key:
+            print(f"{Fore.RED}   ❌ Не знайдено ключ для вводу")
+            return ""
+        
+        # Перенести на пристрій
+        input_data = inputs[input_key].to(device)
+        
+        # Транскрибувати
+        with torch.no_grad():
+            logits = model(input_data).logits
+        
+        # Декодувати
+        predicted_ids = torch.argmax(logits, dim=-1)
+        text = processor.batch_decode(predicted_ids)[0]
+        
+        return text.strip()
+        
+    except Exception as e:
+        print(f"{Fore.RED}   ❌ Помилка транскрипції: {e}")
+        return ""
+
+def record_audio_with_countdown(duration, sample_rate, label="Запис"):
+    """Записати аудіо з зворотнім відліком"""
+    print(f"{Fore.CYAN}🎤 {label}: ", end="", flush=True)
+    
+    # Створити змінну для збереження аудіо
+    audio_data = []
+    
+    def callback(indata, frames, time_info, status):
+        audio_data.append(indata.copy())
+    
+    # Запустити запис в окремому потоці
+    stream = sd.InputStream(
+        samplerate=sample_rate,
+        channels=1,
+        dtype=np.float32,
+        device=MICROPHONE_DEVICE_ID,  # 👈 ДОДАТИ
+        callback=callback
+    )
+    
+    stream.start()
+    
+    # Зворотній відлік
+    for i in range(duration, 0, -1):
+        print(f"{Fore.YELLOW}{i}", end="", flush=True)
+        time.sleep(1)
+        if i > 1:
+            print(f"{Fore.LIGHTBLACK_EX}...", end="", flush=True)
+    
+    stream.stop()
+    stream.close()
+    
+    print(f" {Fore.GREEN}✓")
+    
+    # Об'єднати всі фрагменти
+    if audio_data:
+        audio = np.concatenate(audio_data, axis=0)
+        return np.squeeze(audio)
+    else:
+        return np.array([])
+
+def check_lm_studio():
+    """Перевірити підключення до LM Studio"""
+    try:
+        response = requests.get("http://localhost:1234/v1/models", timeout=3)
+        
+        if response.status_code == 200:
+            data = response.json()
+            if 'data' in data and len(data['data']) > 0:
+                model_id = data['data'][0]['id']
+                print(f"{Fore.GREEN}✅ Підключено до LM Studio")
+                print(f"{Fore.YELLOW}   📝 Модель: {model_id}")
+                return True
+            else:
+                print(f"{Fore.RED}❌ LM Studio запущений, але немає завантажених моделей!")
+                print(f"{Fore.YELLOW}💡 Завантажте модель в LM Studio")
+                return False
+        else:
+            print(f"{Fore.RED}❌ LM Studio відповів з помилкою: {response.status_code}")
+            return False
+            
+    except requests.exceptions.Timeout:
+        print(f"{Fore.RED}❌ LM Studio не відповідає (timeout)")
+        return False
+    except requests.exceptions.ConnectionError:
+        print(f"{Fore.RED}❌ Не вдалося підключитися до LM Studio")
+        return False
+    except Exception as e:
+        print(f"{Fore.RED}❌ Помилка при перевірці LM Studio: {e}")
+        return False
+
+def main():
+    """Головна функція запуску"""
+    print(f"{Back.BLUE}{Fore.WHITE}{'='*60}")
+    print(f"{Back.BLUE}{Fore.WHITE}🤖 Чіп - Голосовий Асистент {Style.RESET_ALL}")
+    print(f"{Back.BLUE}{Fore.WHITE}{'='*60}{Style.RESET_ALL}")
+    
+    print(f"\n{Fore.CYAN}🔧 Завантаження модулів...")
+    start_time = time.time()
+    registry = FunctionRegistry()
+    load_time = time.time() - start_time
+    print(f"{Fore.LIGHTBLACK_EX}⏱️  {load_time:.2f}с")
+    
+    print(f"\n{Fore.CYAN}🎤 Завантаження w2v-bert-uk...")
+    start_time = time.time()
+    
+    try:
+        w2v_model, w2v_processor, device = load_w2v_model()
+        w2v_time = time.time() - start_time
+        print(f"{Fore.LIGHTBLACK_EX}⏱️  {w2v_time:.2f}с")
+            
+    except Exception as e:
+        print(f"{Fore.RED}❌ Не вдалося завантажити модель розпізнавання мови")
+        print(f"{Fore.RED}   Деталі: {e}")
+        return
+    
+    print(f"\n{Fore.CYAN}🔌 Підключення до LM Studio...")
+    if not check_lm_studio():
+        return
+    
+    print(f"\n{Fore.YELLOW}{'='*60}")
+    print(f"{Fore.YELLOW}📦 Функцій: {Fore.WHITE}{len(registry.functions)}")
+    for func_name in registry.functions.keys():
+        print(f"{Fore.CYAN}   • {func_name}")
+    print(f"{Fore.YELLOW}{'='*60}{Style.RESET_ALL}")
+    
+    system_prompt = registry.get_system_prompt()
+    assistant = VoiceAssistant(w2v_model, registry, system_prompt)
+    
+    # Зберегти модель у асистенті
+    assistant.w2v_processor = w2v_processor
+    assistant.w2v_device = device
+    
+    # Передати асистента в voice_input модуль
+    try:
+        from functions.aaa_voice_input import set_assistant
+        set_assistant(assistant)
+        print(f"{Fore.GREEN}✅ Асистент переданий в voice_input")
+    except Exception as e:
+        print(f"{Fore.YELLOW}⚠️  Не вдалося передати асистента: {e}")
+    
+    # Основний цикл слухання
+    print(f"\n{Back.CYAN}{Fore.BLACK} 🎧 РЕЖИМ ПРОСЛУХОВУВАННЯ {Style.RESET_ALL}")
+    
+    if ACTIVATION_WORD:
+        print(f"{Fore.YELLOW}💡 Режим активації: скажіть '{ACTIVATION_WORD.upper()}' для команди")
+        print(f"{Fore.LIGHTBLACK_EX}💡 Приклад: '{ACTIVATION_WORD} відкрий блокнот'")
+    else:
+        print(f"{Fore.YELLOW}💡 Режим без активації: говоріть команди напряму")
+        print(f"{Fore.LIGHTBLACK_EX}💡 Приклад: 'відкрий блокнот'")
+    
+    print(f"{Fore.LIGHTBLACK_EX}💡 Ctrl+C для виходу\n")
+    
+    while assistant.is_listening:
+        try:
+            if ACTIVATION_WORD:
+                # Режим з активацією
+                # Слухати для активаційного слова (коротко, без відліку)
+                audio = sd.rec(
+                    int(ACTIVATION_LISTEN_DURATION * SAMPLE_RATE),
+                    samplerate=SAMPLE_RATE,
+                    channels=1,
+                    dtype=np.float32,
+                    device=MICROPHONE_DEVICE_ID,  # 👈 ДОДАТИ
+                    blocking=True
+                )
+                audio = np.squeeze(audio)
+                
+                # Перевірити чи є звук
+                if not check_volume(audio):
+                    continue
+                
+                # Розпізнати
+                text = transcribe_audio(audio, w2v_model, w2v_processor, device)
+                
+                if not text:
+                    continue
+                
+                # Показати що почули (сірим)
+                print(f"{Fore.LIGHTBLACK_EX}🔉 {text}")
+                
+                # Перевірити активацію
+                # В main.py знайдіть блок коду після перевірки активації та замініть його:
+
+                if check_activation_word(text):
+                    print(f"\n{Back.GREEN}{Fore.BLACK} ✨ АКТИВОВАНО! {Style.RESET_ALL}")
+                    
+                    # Видалити активаційне слово за допомогою функції, яка вже є
+                    command_text = remove_activation_word(text)
+                    
+                    # Перевірити чи є команда після активаційного слова
+                    has_command = command_text and len(command_text) > 3 and not should_ignore_command(command_text)
+                    
+                    if has_command:
+                        # Команда вже є в активаційній фразі
+                        print(f"{Fore.GREEN}✓ Команда розпізнана відразу")
+                        print(f"{Fore.BLUE}💬 [Команда]: {Fore.WHITE}{command_text}")
+                    else:
+                        # Записати команду з відліком
+                        print(f"{Fore.YELLOW}⚠️  Очікую команду після '{ACTIVATION_WORD}'...")
+                        command_audio = record_audio_with_countdown(
+                            COMMAND_LISTEN_DURATION, 
+                            SAMPLE_RATE,
+                            "Говоріть команду"
+                        )
+                        
+                        # Розпізнати команду
+                        command_text = transcribe_audio(command_audio, w2v_model, w2v_processor, device)
+                        
+                        if not command_text or should_ignore_command(command_text):
+                            print(f"{Fore.YELLOW}⚠️  Команду не розпізнано\n")
+                            continue
+                        
+                        print(f"{Fore.BLUE}💬 [Команда]: {Fore.WHITE}{command_text}")
+                    
+                    # Перевірити чи не ігнорувати
+                    if should_ignore_command(command_text):
+                        print(f"{Fore.LIGHTBLACK_EX}⏭️  Ігноровано (фільтр)\n")
+                        continue
+                    
+                    # Кулдаун
+                    current_time = time.time()
+                    if current_time - assistant.last_command_time < assistant.command_cooldown:
+                        print(f"{Fore.LIGHTBLACK_EX}⏭️  Занадто швидко, чекаю...\n")
+                        continue
+                    
+                    # Обробити команду
+                    assistant.last_command_time = current_time
+                    assistant.process_command(command_text)
+                    
+                    print(f"\n{Fore.CYAN}🎧 Продовжую слухати...\n")
+            else:
+                # Режим без активації (як раніше, але з відліком)
+                audio = record_audio_with_countdown(
+                    LISTEN_DURATION,
+                    SAMPLE_RATE,
+                    "Слухаю"
+                )
+                
+                if not check_volume(audio):
+                    continue
+                
+                text = transcribe_audio(audio, w2v_model, w2v_processor, device)
+                
+                if not text:
+                    continue
+                
+                print(f"{Fore.LIGHTBLACK_EX}🔉 {text}")
+                
+                if should_ignore_command(text):
+                    print(f"{Fore.LIGHTBLACK_EX}⏭️  Ігноровано (фільтр)")
+                    continue
+                
+                current_time = time.time()
+                if current_time - assistant.last_command_time < assistant.command_cooldown:
+                    print(f"{Fore.LIGHTBLACK_EX}⏭️  Занадто швидко, чекаю...")
+                    continue
+                
+                print(f"\n{Back.GREEN}{Fore.BLACK} ✨ ОБРОБКА КОМАНДИ {Style.RESET_ALL}")
+                print(f"{Fore.BLUE}💬 [Команда]: {Fore.WHITE}{text}")
+                
+                assistant.last_command_time = current_time
+                assistant.process_command(text)
+                
+                print(f"\n{Fore.CYAN}🎧 Продовжую слухати...\n")
+            
+        except KeyboardInterrupt:
+            print(f"\n\n{Fore.YELLOW}👋 Вимикаюсь...")
+            assistant.is_listening = False
+            break
+        except Exception as e:
+            print(f"{Fore.RED}❌ Помилка: {e}")
+            time.sleep(0.5)
+
+if __name__ == "__main__":
+    main()

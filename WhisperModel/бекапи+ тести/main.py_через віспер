@@ -1,0 +1,148 @@
+# main.py
+"""Головний файл запуску"""
+import os
+import sys
+import time
+from pathlib import Path
+from colorama import Fore, Back, Style, init
+
+# Ініціалізувати colorama
+init(autoreset=True)
+
+# Додати шляхи до CUDA бібліотек
+venv_path = sys.prefix
+nvidia_paths = [
+    os.path.join(venv_path, 'Lib', 'site-packages', 'nvidia', 'cublas', 'bin'),
+    os.path.join(venv_path, 'Lib', 'site-packages', 'nvidia', 'cudnn', 'bin'),
+    os.path.join(venv_path, 'Lib', 'site-packages', 'nvidia', 'cuda_runtime', 'bin'),
+]
+
+for path in nvidia_paths:
+    if os.path.exists(path):
+        os.environ['PATH'] = path + os.pathsep + os.environ['PATH']
+        try:
+            os.add_dll_directory(path)
+        except:
+            pass
+
+import sounddevice as sd
+import numpy as np
+from faster_whisper import WhisperModel
+import requests
+
+# Імпорт модулів
+from functions.logic_core import FunctionRegistry
+from functions.logic_commands import VoiceAssistant
+from functions.logic_audio import should_ignore_command
+from functions.config import SAMPLE_RATE, LISTEN_DURATION
+
+def main():
+    """Головна функція запуску"""
+    print(f"{Back.BLUE}{Fore.WHITE}{'='*60}")
+    print(f"{Back.BLUE}{Fore.WHITE}🤖 Чіп - Голосовий Асистент {Style.RESET_ALL}")
+    print(f"{Back.BLUE}{Fore.WHITE}{'='*60}{Style.RESET_ALL}")
+    
+    print(f"\n{Fore.CYAN}🔧 Завантаження модулів...")
+    start_time = time.time()
+    registry = FunctionRegistry()
+    load_time = time.time() - start_time
+    print(f"{Fore.LIGHTBLACK_EX}⏱️  {load_time:.2f}с")
+    
+    print(f"\n{Fore.CYAN}🎤 Завантаження Whisper...")
+    start_time = time.time()
+    whisper_model = WhisperModel("medium", device="cuda", compute_type="float16")
+    whisper_time = time.time() - start_time
+    print(f"{Fore.LIGHTBLACK_EX}⏱️  {whisper_time:.2f}с")
+    
+    print(f"\n{Fore.CYAN}🔌 Підключення до LM Studio...")
+    try:
+        test_response = requests.get("http://localhost:1234/v1/models", timeout=5)
+        if test_response.status_code == 200:
+            models = test_response.json()
+            print(f"{Fore.GREEN}✅ {Fore.YELLOW}{models['data'][0]['id']}")
+        else:
+            print(f"{Fore.YELLOW}⚠️  Проблеми з API")
+    except:
+        print(f"{Fore.RED}❌ LM Studio не запущений!")
+        return
+    
+    print(f"\n{Fore.YELLOW}{'='*60}")
+    print(f"{Fore.YELLOW}📦 Функцій: {Fore.WHITE}{len(registry.functions)}")
+    for func_name in registry.functions.keys():
+        print(f"{Fore.CYAN}   • {func_name}")
+    print(f"{Fore.YELLOW}{'='*60}{Style.RESET_ALL}")
+    
+    system_prompt = registry.get_system_prompt()
+    assistant = VoiceAssistant(whisper_model, registry, system_prompt)
+    
+    # Основний цикл слухання
+    print(f"\n{Back.CYAN}{Fore.BLACK} 🎧 РЕЖИМ ПРОСЛУХОВУВАННЯ {Style.RESET_ALL}")
+    print(f"{Fore.YELLOW}💡 Говоріть команди. Короткі слова і подяки ігноруються.")
+    print(f"{Fore.YELLOW}💡 Приклад: 'відкрий блокнот', 'запусти калькулятор'")
+    print(f"{Fore.LIGHTBLACK_EX}💡 Ctrl+C для виходу\n")
+    
+    while assistant.is_listening:
+        try:
+            # Записати фрагмент
+            audio = sd.rec(
+                int(LISTEN_DURATION * SAMPLE_RATE),
+                samplerate=SAMPLE_RATE,
+                channels=1,
+                dtype=np.float32,
+                blocking=True
+            )
+            audio = np.squeeze(audio)
+            
+            # Перевірити чи є звук
+            from functions.logic_audio import check_volume
+            if not check_volume(audio):
+                continue
+            
+            # Розпізнати
+            segments, info = whisper_model.transcribe(
+                audio,
+                language="uk",
+                beam_size=1,
+                vad_filter=True
+            )
+            
+            text = ""
+            for seg in segments:
+                text += seg.text
+            
+            if not text.strip():
+                continue
+            
+            # Показати що почули
+            print(f"{Fore.LIGHTBLACK_EX}🔉 {text}")
+            
+            # Перевірити чи не ігнорувати команду
+            if should_ignore_command(text):
+                print(f"{Fore.LIGHTBLACK_EX}⏭️  Ігноровано (фільтр)")
+                continue
+            
+            # Кулдаун між командами
+            current_time = time.time()
+            if current_time - assistant.last_command_time < assistant.command_cooldown:
+                print(f"{Fore.LIGHTBLACK_EX}⏭️  Занадто швидко, чекаю...")
+                continue
+            
+            # Обробити команду
+            print(f"\n{Back.GREEN}{Fore.BLACK} ✨ ОБРОБКА КОМАНДИ {Style.RESET_ALL}")
+            print(f"{Fore.BLUE}💬 [Команда]: {Fore.WHITE}{text}")
+            
+            assistant.last_command_time = current_time
+            assistant.process_command(text)
+            
+            print(f"\n{Fore.CYAN}🎧 Продовжую слухати...\n")
+            
+        except KeyboardInterrupt:
+            print(f"\n\n{Fore.YELLOW}👋 Вимикаюсь...")
+            assistant.is_listening = False
+            break
+        except Exception as e:
+            print(f"{Fore.RED}❌ Помилка: {e}")
+            time.sleep(0.5)
+
+if __name__ == "__main__":
+    main()
