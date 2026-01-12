@@ -12,3 +12,5 @@ WhisperModel/TTS/
 WhisperModel/tts_cache/
 WhisperModel/voices/
 vllm/
+WhisperModel/бекапи+ тести/
+*.rar
