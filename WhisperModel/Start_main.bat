@@ -2,8 +2,7 @@
 cd /d D:\Python\TEXT\LLM_model
 call venv\Scripts\activate.bat
 cd /d D:\Python\TEXT\LLM_model\WhisperModel
-main.py
-
+run_assistant.py
 
 cmd /K
 

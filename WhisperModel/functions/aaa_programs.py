@@ -56,12 +56,12 @@ def close_program(process_name):
         success, message = sandbox.close_safe_program(process_name)
         
         if success:
-            return f"⚡ МАРК: {message}"
+            return message  # ✅ Тільки текст, без префіксу
         else:
-            return f"⚡ МАРК: {message}"
+            return message  # ✅ Тільки текст, без префіксу
             
     except Exception as e:
-        return f"⚡ МАРК: Помилка: {str(e)}"
+        return f"Помилка: {str(e)}"  # ✅ Без префіксу
 
 @llm_function(
     name="add_allowed_program",

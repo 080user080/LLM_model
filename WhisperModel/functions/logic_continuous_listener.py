@@ -75,7 +75,7 @@ class ContinuousListener:
         """Призупинити запис з мікрофону"""
         if self.is_listening and not self.is_paused:
             self.is_paused = True
-            print(f"{Fore.YELLOW}⏸️  Запис призупинено (TTS відтворення)")
+            print(f"{Fore.YELLOW}⏸️  Запис призупинено")
             return True
         return False
     

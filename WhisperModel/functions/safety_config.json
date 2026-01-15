@@ -1,0 +1,28 @@
+{
+  "allowed_programs": {
+    "notepad": "notepad.exe",
+    "блокнот": "notepad.exe",
+    "calculator": "calc.exe",
+    "калькулятор": "calc.exe",
+    "paint": "mspaint.exe",
+    "пейнт": "mspaint.exe",
+    "explorer": "explorer.exe",
+    "провідник": "explorer.exe",
+    "chrome": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+    "хром": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+  },
+  "safe_programs": [
+    "notepad",
+    "calculator",
+    "paint",
+    "mspaint"
+  ],
+  "auto_confirm": true,
+  "blocked_patterns": [
+    "rm -rf /",
+    "del /f /s /q C:\\\\",
+    "format",
+    "sudo rm",
+    "rmdir /s"
+  ]
+}

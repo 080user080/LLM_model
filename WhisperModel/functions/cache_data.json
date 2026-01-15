@@ -1,25 +1,36 @@
 {
-  "марк": {
-    "response": "Помилка: 400",
+  "pfgecnb ,kjryjn": {
+    "response": "Слухаю.",
     "action_info": null,
-    "timestamp": "2026-01-13T20:02:33.783801",
+    "timestamp": "2026-01-15T20:30:48.956206",
     "hits": 0
   },
-  "відкриййй блокнот.": {
-    "response": "Помилка: 400",
+  "запусти блокнот": {
+    "response": "<|start|>assistant<|channel|>commentary to=functions.create_skill <|constrain|>json<|message|>{\"name\":\"create_skill\",\"arguments\":{}}\n",
     "action_info": {
       "action": "open_program",
       "params": {
         "program_name": "notepad"
       }
     },
-    "timestamp": "2026-01-13T20:02:49.280628",
-    "hits": 2
+    "timestamp": "2026-01-15T20:31:16.862729",
+    "hits": 0
   },
-  "відкриййв до тна.": {
-    "response": "⚡ МАРК: Помилка: No module named 'functions.core_safety_sandbox'",
+  "dslrhbq ,kjryjn": {
+    "response": "Слухаю.",
     "action_info": null,
-    "timestamp": "2026-01-13T20:04:34.441713",
+    "timestamp": "2026-01-15T20:32:00.896564",
+    "hits": 0
+  },
+  "відкрий блокнот": {
+    "response": "⚡ МАРК: Помилка: unindent does not match any outer indentation level (core_safety_sandbox.py, line 133)",
+    "action_info": {
+      "action": "open_program",
+      "params": {
+        "program_name": "notepad"
+      }
+    },
+    "timestamp": "2026-01-15T20:32:13.301505",
     "hits": 0
   }
 }

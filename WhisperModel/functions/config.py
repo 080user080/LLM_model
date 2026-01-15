@@ -2,7 +2,7 @@
 """Глобальні налаштування"""
 
 # ⚡ Асистент
-ASSISTANT_NAME = "МАРК"
+ASSISTANT_NAME = "марк"
 ASSISTANT_EMOJI = "⚡"
 ASSISTANT_DISPLAY_NAME = f"{ASSISTANT_EMOJI} {ASSISTANT_NAME}"
 
@@ -42,6 +42,9 @@ ACTIVATION_LISTEN_DURATION = 1.5
 COMMAND_LISTEN_DURATION = 4
 ACTIVATION_SIMILARITY_THRESHOLD = 0.75
 
+# TTS префікси
+TTS_SPEAK_PREFIXES = [f"{ASSISTANT_DISPLAY_NAME}:", f"{ASSISTANT_NAME}:"]
+
 # Безперервне прослуховування
 CONTINUOUS_MODE = {
     "chunk_duration": 4.0,
@@ -52,8 +55,8 @@ CONTINUOUS_MODE = {
 }
 
 # Модель розпізнавання мови (Speech-to-Text)
-STT_MODEL_TYPE = "whisper"  # "whisper", "w2v-bert", або "both"
-STT_MODEL_ID = "large-v3"       # Для whisper: tiny, base, small, medium, large-v3
+STT_MODEL_TYPE = "w2v-bert"  # "whisper", "w2v-bert", або "both"
+STT_MODEL_ID = "Yehor/w2v-bert-uk-v2.1"       # Для whisper: tiny, base, small, medium, large-v3
                             # Для w2v-bert: "Yehor/w2v-bert-uk-v2.1"
 STT_LANGUAGE = "uk"         # Мова для розпізнавання
 STT_PARALLEL_ENABLED = True  # Паралельне використання моделей для перевірки

@@ -54,7 +54,7 @@ def ask_llm(user_message, conversation_history, system_prompt):
             json={
                 "model": "local-model",  # Це поле обов'язкове для сумісності з OpenAI API
                 "messages": messages,
-                "temperature": 0.0,
+                "temperature": 0.1,
                 "max_tokens": 1024,
                 "stream": False
             },
