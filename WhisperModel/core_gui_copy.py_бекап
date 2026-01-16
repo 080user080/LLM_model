@@ -128,10 +128,6 @@ class AssistantGUI:
         )
         self.chat_history.pack(fill='both', expand=True)
         
-        # 🔥 НОВИЙ: Включаємо стандартне копіювання Ctrl+C для історії чату
-        self.chat_history.bind('<Control-c>', self.copy_chat_selection)
-        self.chat_history.bind('<Control-C>', self.copy_chat_selection)
-        
         # Фрейм для підтвердження (прихований за замовчуванням)
         self.confirmation_frame = ttk.Frame(main_container)
         
@@ -163,7 +159,7 @@ class AssistantGUI:
         )
         self.no_button.pack(side='left', padx=10)
         
-        # Контейнер для поля вводу
+        # 🔥 ВИПРАВЛЕННЯ: Контейнер для поля вводу
         self.input_container = ttk.Frame(main_container)
         self.input_container.pack(fill='x', side='bottom', pady=(5, 0))
         
@@ -188,7 +184,7 @@ class AssistantGUI:
         )
         self.input_text.grid(row=0, column=0, sticky='nsew', padx=(0, 5))
         
-        # Збільшена кнопка з іконкою
+        # 🔥 ВИПРАВЛЕННЯ: Збільшена кнопка з іконкою
         self.send_button = ttk.Button(
             input_frame,
             text="➤",  # Символ стрілки вправо
@@ -202,18 +198,12 @@ class AssistantGUI:
         self.input_text.insert(1.0, "Введіть команду...")
         self.input_text.configure(fg='#999999')
         
-        # Покращена обробка Enter
+        # 🔥 ВИПРАВЛЕННЯ: Покращена обробка Enter
         self.input_text.bind('<Return>', self.on_enter_pressed)
         self.input_text.bind('<Shift-Return>', self.on_shift_enter)
         self.input_text.bind('<FocusIn>', self.on_input_focus)
         self.input_text.bind('<FocusOut>', self.on_input_blur)
         self.input_text.bind('<Key>', self.on_input_key)
-        
-        # 🔥 НОВИЙ: Стандартне копіювання/вставка для поля вводу
-        self.input_text.bind('<Control-c>', self.copy_input_text)
-        self.input_text.bind('<Control-C>', self.copy_input_text)
-        self.input_text.bind('<Control-v>', self.paste_input_text)
-        self.input_text.bind('<Control-V>', self.paste_input_text)
         
         # Статус бар
         self.status_var = tk.StringVar()
@@ -249,20 +239,6 @@ class AssistantGUI:
     def add_message(self, sender, message):
         """Додати повідомлення до чату"""
         self.chat_history.configure(state='normal')
-        
-        # 🔥 ВИПРАВЛЕННЯ: Очищаємо подвійні префікси
-        if sender == "assistant":
-            # Видаляємо будь-які префікси МАРК з повідомлення
-            prefixes_to_remove = [
-                f"{ASSISTANT_TITLE}: ",
-                f"{ASSISTANT_EMOJI} {ASSISTANT_NAME}: ",
-                "⚡ МАРК: ",
-                "МАРК: "
-            ]
-            for prefix in prefixes_to_remove:
-                if message.startswith(prefix):
-                    message = message[len(prefix):].strip()
-                    break
         
         # Додаємо роздільник, якщо це не перше повідомлення
         current_text = self.chat_history.get(1.0, tk.END).strip()
@@ -334,56 +310,6 @@ class AssistantGUI:
         self.input_text.insert(tk.INSERT, '\n')
         return 'break'
     
-    def copy_chat_selection(self, event=None):
-        """Копіювати виділений текст з історії чату"""
-        try:
-            # Отримати виділений текст
-            selected_text = self.chat_history.selection_get()
-            if selected_text:
-                self.root.clipboard_clear()
-                self.root.clipboard_append(selected_text)
-                print(f"📋 Скопійовано: {len(selected_text)} символів")
-        except tk.TclError:
-            # Немає виділення - копіюємо всю історію
-            self.chat_history.configure(state='normal')
-            all_text = self.chat_history.get(1.0, tk.END)
-            self.chat_history.configure(state='disabled')
-            
-            if all_text.strip():
-                self.root.clipboard_clear()
-                self.root.clipboard_append(all_text)
-                print(f"📋 Скопійовано всю історію: {len(all_text)} символів")
-        
-        return 'break'  # Запобігаємо стандартній обробці
-    
-    def copy_input_text(self, event=None):
-        """Копіювати виділений текст з поля вводу"""
-        try:
-            if self.input_text.tag_ranges(tk.SEL):
-                selected_text = self.input_text.get(tk.SEL_FIRST, tk.SEL_LAST)
-                self.root.clipboard_clear()
-                self.root.clipboard_append(selected_text)
-                return 'break'
-        except tk.TclError:
-            pass
-        return None
-    
-    def paste_input_text(self, event=None):
-        """Вставити текст з буфера обміну"""
-        try:
-            clipboard_text = self.root.clipboard_get()
-            
-            # Якщо є виділення, замінити його
-            if self.input_text.tag_ranges(tk.SEL):
-                self.input_text.delete(tk.SEL_FIRST, tk.SEL_LAST)
-            
-            # Вставити текст
-            self.input_text.insert(tk.INSERT, clipboard_text)
-            return 'break'
-        except tk.TclError:
-            pass
-        return None
-    
     def send_text_command(self):
         """Відправити текстову команду"""
         command = self.input_text.get(1.0, tk.END).strip()
@@ -391,9 +317,13 @@ class AssistantGUI:
         if not command or command == "Введіть команду...":
             return
         
-        # Видалено прямий виклик add_message - логування через колбек
+        # Додаємо команду до чату
+        self.add_message("user", command)
+        
+        # Очищуємо поле вводу
         self.input_text.delete(1.0, tk.END)
         
+        # Відправляємо команду асистенту
         if self.assistant_callback:
             self.assistant_callback('process_text', command)
     

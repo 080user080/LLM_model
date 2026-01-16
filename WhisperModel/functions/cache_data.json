@@ -1,27 +1,4 @@
 {
-  "pfgecnb ,kjryjn": {
-    "response": "Слухаю.",
-    "action_info": null,
-    "timestamp": "2026-01-15T20:30:48.956206",
-    "hits": 0
-  },
-  "запусти блокнот": {
-    "response": "<|start|>assistant<|channel|>commentary to=functions.create_skill <|constrain|>json<|message|>{\"name\":\"create_skill\",\"arguments\":{}}\n",
-    "action_info": {
-      "action": "open_program",
-      "params": {
-        "program_name": "notepad"
-      }
-    },
-    "timestamp": "2026-01-15T20:31:16.862729",
-    "hits": 0
-  },
-  "dslrhbq ,kjryjn": {
-    "response": "Слухаю.",
-    "action_info": null,
-    "timestamp": "2026-01-15T20:32:00.896564",
-    "hits": 0
-  },
   "відкрий блокнот": {
     "response": "⚡ МАРК: Помилка: unindent does not match any outer indentation level (core_safety_sandbox.py, line 133)",
     "action_info": {
@@ -30,7 +7,29 @@
         "program_name": "notepad"
       }
     },
-    "timestamp": "2026-01-15T20:32:13.301505",
+    "timestamp": "2026-01-15T20:50:44.517716",
+    "hits": 1
+  },
+  "марк відкрий блокнот": {
+    "response": "⚡ МАРК: Помилка: unindent does not match any outer indentation level (core_safety_sandbox.py, line 133)",
+    "action_info": {
+      "action": "open_program",
+      "params": {
+        "program_name": "notepad"
+      }
+    },
+    "timestamp": "2026-01-15T20:51:39.350461",
+    "hits": 0
+  },
+  "закрий блокнот": {
+    "response": "⚡ МАРК: Програма 'notepad.exe' не в whitelist",
+    "action_info": {
+      "action": "close_program",
+      "params": {
+        "process_name": "notepad"
+      }
+    },
+    "timestamp": "2026-01-15T21:36:29.630429",
     "hits": 0
   }
 }

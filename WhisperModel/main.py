@@ -129,24 +129,19 @@ class AssistantCore:
     
     def log_to_gui(self, sender, message):
         """Відправити повідомлення в GUI"""
-        if self.gui_queue:
-            # Видаляємо подвійні префікси
-            from functions.config import TTS_SPEAK_PREFIXES, ASSISTANT_DISPLAY_NAME
+        if not self.gui_queue:
+            return
             
-            if sender == "assistant":
-                # Видаляємо будь-які наявні префікси
-                for prefix in TTS_SPEAK_PREFIXES:
-                    if message.strip().startswith(prefix):
-                        message = message.strip()[len(prefix):].strip()
-                        break
-            
-            self.gui_queue.put(('add_message', (sender, message)))
-        else:
-            # Fallback до консолі
-            if sender == "user":
-                print(f"{Fore.CYAN}👑 ВИ: {Fore.WHITE}{message}")
-            else:
-                print(f"{Fore.GREEN}⚡ МАРК: {Fore.WHITE}{message}")
+        # Видаляємо префікси для assistant
+        if sender == "assistant":
+            from functions.config import TTS_SPEAK_PREFIXES
+            for prefix in TTS_SPEAK_PREFIXES:
+                if message.strip().startswith(prefix):
+                    message = message.strip()[len(prefix):].strip()
+                    break
+        
+        # Відправляємо ВСІ повідомлення (user + assistant)
+        self.gui_queue.put(('add_message', (sender, message)))
     
     def load_stt_model(self):
         """Завантажити STT двигун"""

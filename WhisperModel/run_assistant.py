@@ -41,8 +41,9 @@ class AssistantApp:
         """Запустити GUI"""
         self.gui = AssistantGUI(self.gui_callback)
         
-        # Передаємо чергу в GUI для отримання повідомлень від core
-        self.gui.message_queue = self.gui_queue
+        # ВИДАЛЕНО: self.gui.message_queue = self.gui_queue
+        # Тепер GUI має власну чергу
+        
         self.gui.run()
     
     def process_gui_queue(self):

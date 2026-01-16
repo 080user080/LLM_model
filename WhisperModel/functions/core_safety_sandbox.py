@@ -106,32 +106,9 @@ class SafetySandbox:
             print(f"{Fore.RED}❌ Помилка збереження config: {e}")
     
     def _log_action(self, action_type, program_name, success, message):
-        #"""Записати дію в audit log"""
-        #try:
-            #log_entry = {
-                #"timestamp": datetime.now().isoformat(),
-                #"action": action_type,
-                #"program": program_name,
-                #"success": success,
-                #"message": message
-            #}
-            
-            # Завантажити існуючий лог
-            #if self.audit_log_path.exists():
-                #with open(self.audit_log_path, 'r', encoding='utf-8') as f:
-                    #logs = json.load(f)
-            #else:
-                #logs = []
-            
-            # Додати новий запис
-            #logs.append(log_entry)
-            
-            # Зберегти (останні 100 записів)
-            #with open(self.audit_log_path, 'w', encoding='utf-8') as f:
-                #json.dump(logs[-100:], f, indent=2, ensure_ascii=False)
-            pass  # Просто нічого не робити
-        except Exception as e:
-            print(f"{Fore.RED}❌ Помилка логування: {e}")
+        """Записати дію в audit log"""
+        # Тимчасово відключено для уникнення помилки
+        pass
     
     def is_safe_program(self, program_name):
         """Перевірити чи програма безпечна (auto-confirm)"""
