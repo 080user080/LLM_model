@@ -7,17 +7,14 @@ import threading
 import queue
 from pathlib import Path
 from colorama import Fore, Back, Style, init
-import ctypes
 
 # Ініціалізувати colorama
 init(autoreset=True)
 
 # Для правильного показу українських символів в консолі Windows
 if os.name == 'nt':
-    # Встановлюємо кодування консолі на UTF-8
     sys.stdout.reconfigure(encoding='utf-8')
     
-    # На Windows встановлюємо кодування для stdio
     import io
     sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
@@ -98,9 +95,9 @@ print(f"   Поріг: {VOLUME_THRESHOLD}")
 
 if volume < 0.01:
     print(f"{Fore.RED}   ⚠️  ДУЖЕ ТИХО! Гучність {volume:.6f} < 0.01")
-    print(f"{Fore.YELLOW}   💡 Підвищіть гучність мікрофона в Windows:")
+    print(f"{Fore.YELLOW}   💡 Підвищіть гучність мікрофона:")
     print(f"{Fore.YELLOW}      1. Правий клік на звук → Налаштування")
-    print(f"{Fore.YELLOW}      2. Введення → USB2.0 Camera → Властивості")
+    print(f"{Fore.YELLOW}      2. Введення → Властивості")
     print(f"{Fore.YELLOW}      3. Рівні → Мікрофон 100% + Підсилення +20dB")
 elif volume > VOLUME_THRESHOLD:
     print(f"   ✅ Мікрофон працює!")
@@ -129,19 +126,24 @@ class AssistantCore:
     
     def log_to_gui(self, sender, message):
         """Відправити повідомлення в GUI"""
-        if not self.gui_queue:
-            return
+        if self.gui_queue:
+            # Видаляємо префікси для assistant
+            if sender == "assistant":
+                from functions.config import TTS_SPEAK_PREFIXES
+                for prefix in TTS_SPEAK_PREFIXES:
+                    if message.strip().startswith(prefix):
+                        message = message.strip()[len(prefix):].strip()
+                        break
             
-        # Видаляємо префікси для assistant
-        if sender == "assistant":
-            from functions.config import TTS_SPEAK_PREFIXES
-            for prefix in TTS_SPEAK_PREFIXES:
-                if message.strip().startswith(prefix):
-                    message = message.strip()[len(prefix):].strip()
-                    break
-        
-        # Відправляємо ВСІ повідомлення (user + assistant)
-        self.gui_queue.put(('add_message', (sender, message)))
+            # Відправляємо чисте повідомлення
+            self.gui_queue.put(('add_message', (sender, message)))
+        else:
+            # Fallback до консолі
+            from functions.config import ASSISTANT_DISPLAY_NAME
+            if sender == "user":
+                print(f"{Fore.CYAN}👑 ВИ: {Fore.WHITE}{message}")
+            else:
+                print(f"{Fore.GREEN}{ASSISTANT_DISPLAY_NAME}: {Fore.WHITE}{message}")
     
     def load_stt_model(self):
         """Завантажити STT двигун"""
@@ -166,37 +168,7 @@ class AssistantCore:
         """Транскрибувати аудіо через STT двигун"""
         try:
             print(f"{Fore.CYAN}🔧 Початкова довжина: {len(audio)/SAMPLE_RATE:.1f}с")
-            print(f"{Fore.YELLOW}🔥 ТЕСТ: фільтрація ВИМКНЕНО")
             
-            # 🔥 ТЕСТ: Повністю без фільтрації!
-            # audio = audio_filter.process_audio(...)
-            
-            print(f"{Fore.CYAN}🔧 Після фільтрації: {len(audio)/SAMPLE_RATE:.1f}с")
-            
-            # Перевірка гучності
-            volume = np.abs(audio).mean()
-            print(f"{Fore.CYAN}🔊 Середня гучність ДО підсилення: {volume:.6f}")
-            
-            # 🔥 КРИТИЧНО: Підсилення аудіо якщо занадто тихо!
-            if volume < 0.01:  # Якщо тихіше ніж 1%
-                boost_factor = 0.05 / (volume + 1e-8)  # Підсилити до 5%
-                boost_factor = min(boost_factor, 50.0)  # Максимум x50
-                audio = audio * boost_factor
-                new_volume = np.abs(audio).mean()
-                print(f"{Fore.YELLOW}🔊 ПІДСИЛЕНО x{boost_factor:.1f} → гучність: {new_volume:.6f}")
-            
-            # Нормалізація до [-1, 1]
-            max_val = np.max(np.abs(audio))
-            if max_val > 1.0:
-                audio = audio / max_val
-                print(f"{Fore.YELLOW}🔧 Нормалізовано (було {max_val:.2f})")
-            
-            # Мінімальна перевірка довжини
-            if len(audio) < SAMPLE_RATE * 0.3:
-                print(f"{Fore.YELLOW}⚠️  Занадто короткий запис")
-                return ""
-            
-            # Виклик STT двигуна
             text = stt_engine.transcribe(audio)
             
             print(f"{Fore.GREEN}✅ Розпізнано: '{text}'")
@@ -228,7 +200,6 @@ class AssistantCore:
         
         stream.start()
         
-        # Зворотній відлік
         for i in range(duration, 0, -1):
             print(f"{Fore.YELLOW}{i}", end="", flush=True)
             time.sleep(1)
@@ -252,7 +223,6 @@ class AssistantCore:
         import os
         
         DESIRED_MODEL = "openai/gpt-oss-20b"
-        # Правильний шлях до lms
         LMS_PATH = os.path.expanduser(r"~\.lmstudio\bin\lms.exe")
         BASE_URL = "http://localhost:1234"
         
@@ -269,7 +239,6 @@ class AssistantCore:
         
         print(f"{Fore.CYAN}🔌 Перевірка LM Studio...")
         
-        # Перевірка поточної моделі
         current_model = get_current_model()
         
         if current_model == DESIRED_MODEL:
@@ -283,7 +252,7 @@ class AssistantCore:
         else:
             print(f"{Fore.YELLOW}⚠️  Жодної моделі не завантажено")
         
-        # Автозавантаження через lms
+        # Автозавантаження
         print(f"{Fore.CYAN}🤖 Автоматичне завантаження моделі...")
         
         try:
@@ -296,7 +265,6 @@ class AssistantCore:
             
             print(f"{Fore.CYAN}⏳ Очікування завантаження (до 20с)...")
             
-            # Очікування з перевіркою
             for i in range(20):
                 time.sleep(1)
                 
@@ -308,14 +276,13 @@ class AssistantCore:
                 if i % 3 == 0:
                     print(f"{Fore.LIGHTBLACK_EX}   {i}с...")
             
-            # Фінальна перевірка
             current = get_current_model()
             if current == DESIRED_MODEL:
                 print(f"{Fore.GREEN}✅ Модель завантажена!")
                 return True
             
             print(f"{Fore.YELLOW}⚠️  Завантаження триває довше")
-            return True  # Дати шанс продовжити
+            return True
             
         except Exception as e:
             print(f"{Fore.RED}❌ Помилка автозавантаження: {e}")
@@ -327,16 +294,11 @@ class AssistantCore:
         if not text or len(text.strip()) == 0:
             return
         
-        # Логуємо оригінальну команду
-        self.log_to_gui("user", text)
+        # ВИДАЛЕНО: self.log_to_gui("user", text) - логування в VoiceAssistant
         
-        # ✅ ВИПРАВЛЕННЯ: для GUI команди - не перевіряємо активаційне слово
-        # Просто передаємо команду напряму
-        print(f"{Fore.CYAN}🎯 Команда з GUI: '{text}'")
+        print(f"{Fore.CYAN}🎯 [GUI] Команда: '{text}'")
         
-        # Обробляємо команду
         if self.assistant:
-            # ✅ ВАЖЛИВО: передаємо параметр from_gui=True
             self.assistant.process_command(text, from_gui=True)
     
     def pause_listening(self):
@@ -376,14 +338,14 @@ class AssistantCore:
             print(f"{Fore.RED}   Деталі: {e}")
             return False
         
-        # 🎛️ Ініціалізація аудіо фільтра
+        # Ініціалізація аудіо фільтра
         print(f"\n{Fore.CYAN}🎛️  Ініціалізація аудіо фільтрів...")
         start_time = time.time()
         self.audio_filter = get_audio_filter(SAMPLE_RATE)
         filter_time = time.time() - start_time
         print(f"{Fore.LIGHTBLACK_EX}⏱️  {filter_time:.2f}с")
         
-        # 🔊 Ініціалізація TTS двигуна (ЯКЩО УВІМКНЕНО)
+        # Ініціалізація TTS
         self.tts_engine = None
         if TTS_ENABLED:
             print(f"\n{Fore.CYAN}🔊 Ініціалізація TTS двигуна...")
@@ -421,7 +383,7 @@ class AssistantCore:
         
         system_prompt = self.registry.get_system_prompt()
         
-        # Створити listener перед assistant, щоб передати його
+        # Створити listener
         print(f"\n{Fore.CYAN}🎧 Створення безперервного слухача...")
         self.listener = create_continuous_listener(
             SAMPLE_RATE, 
@@ -434,7 +396,7 @@ class AssistantCore:
             print(f"{Fore.RED}❌ Не вдалося створити слухача")
             return False
         
-        # Створити асистента з кастомним логуванням
+        # Створити асистента
         def custom_log(sender, message):
             self.log_to_gui(sender, message)
         
@@ -446,7 +408,7 @@ class AssistantCore:
             gui_log_callback=custom_log
         )
         
-        # Передати listener в TTS двигун
+        # Передати listener в TTS
         if self.tts_engine and self.listener:
             self.tts_engine.listener = self.listener
         
@@ -454,15 +416,7 @@ class AssistantCore:
         if self.tts_engine:
             self.assistant.set_tts_engine(self.tts_engine)
         
-        # Передати асистента в voice_input модуль
-        try:
-            from functions.aaa_voice_input import set_assistant
-            set_assistant(self.assistant)
-            print(f"{Fore.GREEN}✅ Асистент встановлено для voice_input")
-        except Exception as e:
-            print(f"{Fore.YELLOW}⚠️  Не вдалося передати асистента: {e}")
-        
-        print(f"{Fore.GREEN}✅ Асистент переданий в voice_input")
+        print(f"{Fore.GREEN}✅ Асистент готовий")
         
         return True
     
@@ -474,16 +428,14 @@ class AssistantCore:
         print(f"\n{Back.CYAN}{Fore.BLACK} 🎧 РЕЖИМ БЕЗПЕРЕРВНОГО ПРОСЛУХОВУВАННЯ {Style.RESET_ALL}")
         print(f"{Fore.YELLOW}💡 Говоріть природньо, асистент завжди слухає")
         
-        # Інформація про TTS
         if self.tts_engine and self.tts_engine.is_ready:
             print(f"{Fore.CYAN}💬 TTS активовано: відповіді озвучуватимуться")
             print(f"{Fore.CYAN}   Запис буде автоматично призупинятися під час озвучення")
         
         print(f"{Fore.LIGHTBLACK_EX}💡 Ctrl+C для виходу\n")
         
-        # Створити функцію транскрипції для continuous listener
+        # Функція транскрипції
         def transcribe_wrapper(audio):
-            """Обгортка для transcribe_audio"""
             return self.transcribe_audio(audio, self.stt_engine, self.audio_filter)
         
         try:
@@ -516,7 +468,7 @@ class AssistantCore:
         print(f"{Fore.GREEN}✅ Асистент зупинено")
 
 def main():
-    """Головна функція запуску (для зворотної сумісності)"""
+    """Головна функція запуску"""
     core = AssistantCore()
     core.run()
 

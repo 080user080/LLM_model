@@ -128,7 +128,7 @@ class AssistantGUI:
         )
         self.chat_history.pack(fill='both', expand=True)
         
-        # 🔥 НОВИЙ: Включаємо стандартне копіювання Ctrl+C для історії чату
+        # Включаємо стандартне копіювання Ctrl+C
         self.chat_history.bind('<Control-c>', self.copy_chat_selection)
         self.chat_history.bind('<Control-C>', self.copy_chat_selection)
         
@@ -188,10 +188,10 @@ class AssistantGUI:
         )
         self.input_text.grid(row=0, column=0, sticky='nsew', padx=(0, 5))
         
-        # Збільшена кнопка з іконкою
+        # Кнопка відправки
         self.send_button = ttk.Button(
             input_frame,
-            text="➤",  # Символ стрілки вправо
+            text="➤",
             width=3,
             command=self.send_text_command,
             style='Send.TButton'
@@ -202,18 +202,20 @@ class AssistantGUI:
         self.input_text.insert(1.0, "Введіть команду...")
         self.input_text.configure(fg='#999999')
         
-        # Покращена обробка Enter
+        # Обробка клавіш
         self.input_text.bind('<Return>', self.on_enter_pressed)
         self.input_text.bind('<Shift-Return>', self.on_shift_enter)
         self.input_text.bind('<FocusIn>', self.on_input_focus)
         self.input_text.bind('<FocusOut>', self.on_input_blur)
         self.input_text.bind('<Key>', self.on_input_key)
         
-        # 🔥 НОВИЙ: Стандартне копіювання/вставка для поля вводу
+        # Копіювання/вставка для поля вводу
         self.input_text.bind('<Control-c>', self.copy_input_text)
         self.input_text.bind('<Control-C>', self.copy_input_text)
         self.input_text.bind('<Control-v>', self.paste_input_text)
         self.input_text.bind('<Control-V>', self.paste_input_text)
+        self.input_text.bind('<Control-x>', self.cut_input_text)
+        self.input_text.bind('<Control-X>', self.cut_input_text)
         
         # Статус бар
         self.status_var = tk.StringVar()
@@ -231,15 +233,11 @@ class AssistantGUI:
     
     def setup_window(self):
         """Налаштування поведінки вікна"""
-        # Обробка зміни розміру
         self.root.bind('<Configure>', self.on_resize)
-        
-        # Встановлюємо фокус на поле вводу
         self.root.after(100, self.focus_input)
     
     def on_resize(self, event=None):
         """Обробка зміни розміру вікна"""
-        # Оновлюємо геометрію при зміні розміру
         self.root.update_idletasks()
     
     def focus_input(self):
@@ -250,9 +248,8 @@ class AssistantGUI:
         """Додати повідомлення до чату"""
         self.chat_history.configure(state='normal')
         
-        # 🔥 ВИПРАВЛЕННЯ: Очищаємо подвійні префікси
+        # Очищаємо подвійні префікси
         if sender == "assistant":
-            # Видаляємо будь-які префікси МАРК з повідомлення
             prefixes_to_remove = [
                 f"{ASSISTANT_TITLE}: ",
                 f"{ASSISTANT_EMOJI} {ASSISTANT_NAME}: ",
@@ -264,7 +261,7 @@ class AssistantGUI:
                     message = message[len(prefix):].strip()
                     break
         
-        # Додаємо роздільник, якщо це не перше повідомлення
+        # Додаємо роздільник
         current_text = self.chat_history.get(1.0, tk.END).strip()
         if current_text:
             self.chat_history.insert(tk.END, "\n" + "-"*50 + "\n")
@@ -272,18 +269,14 @@ class AssistantGUI:
         # Відправник
         if sender == "user":
             prefix = "👑 ВИ: "
-            text_color = "#2c3e50"
-        else:  # assistant
+        else:
             prefix = f"{ASSISTANT_TITLE}: "
-            text_color = "#2980b9"
         
-        # Додаємо повідомлення
         self.chat_history.insert(tk.END, prefix, ('bold',))
         self.chat_history.insert(tk.END, message + "\n")
         
         # Форматування
         self.chat_history.tag_configure('bold', font=('Segoe UI', 10, 'bold'))
-        self.chat_history.tag_configure('normal', font=('Segoe UI', 10))
         
         # Прокручуємо до кінця
         self.chat_history.see(tk.END)
@@ -299,7 +292,6 @@ class AssistantGUI:
         self.input_active = True
         self.status_var.set("⌨️  Режим вводу тексту - аудіо призупинено")
         
-        # Повідомляємо асистента про паузу запису
         if self.assistant_callback:
             self.assistant_callback('pause_listening')
     
@@ -313,71 +305,74 @@ class AssistantGUI:
         self.input_active = False
         self.last_input_time = time.time()
         
-        # Повідомляємо асистента про відновлення запису
         if self.assistant_callback:
             self.assistant_callback('resume_listening')
     
     def on_input_key(self, event=None):
-        """Коли натискається клавіша в полі вводу"""
+        """Коли натискається клавіша"""
         self.last_input_time = time.time()
     
     def on_enter_pressed(self, event=None):
-        """Коли натискається Enter (відправка)"""
+        """Обробка Enter"""
         if not self.awaiting_confirmation:
             self.send_text_command()
-            return 'break'  # Запобігаємо стандартній поведінці Enter
+            return 'break'
         return None
     
     def on_shift_enter(self, event=None):
-        """Обробка Shift+Enter (новий рядок)"""
-        # Вставляємо новий рядок
+        """Обробка Shift+Enter"""
         self.input_text.insert(tk.INSERT, '\n')
         return 'break'
     
     def copy_chat_selection(self, event=None):
         """Копіювати виділений текст з історії чату"""
         try:
-            # Отримати виділений текст
             selected_text = self.chat_history.selection_get()
             if selected_text:
                 self.root.clipboard_clear()
                 self.root.clipboard_append(selected_text)
+                self.root.update()  # ВАЖЛИВО для Windows!
                 print(f"📋 Скопійовано: {len(selected_text)} символів")
+                return 'break'
         except tk.TclError:
-            # Немає виділення - копіюємо всю історію
-            self.chat_history.configure(state='normal')
-            all_text = self.chat_history.get(1.0, tk.END)
-            self.chat_history.configure(state='disabled')
-            
-            if all_text.strip():
-                self.root.clipboard_clear()
-                self.root.clipboard_append(all_text)
-                print(f"📋 Скопійовано всю історію: {len(all_text)} символів")
-        
-        return 'break'  # Запобігаємо стандартній обробці
+            pass
+        return None
     
     def copy_input_text(self, event=None):
-        """Копіювати виділений текст з поля вводу"""
+        """Копіювати текст з поля вводу"""
         try:
             if self.input_text.tag_ranges(tk.SEL):
                 selected_text = self.input_text.get(tk.SEL_FIRST, tk.SEL_LAST)
                 self.root.clipboard_clear()
                 self.root.clipboard_append(selected_text)
+                self.root.update()  # ВАЖЛИВО для Windows!
+                return 'break'
+        except tk.TclError:
+            pass
+        return None
+    
+    def cut_input_text(self, event=None):
+        """Вирізати текст з поля вводу"""
+        try:
+            if self.input_text.tag_ranges(tk.SEL):
+                selected_text = self.input_text.get(tk.SEL_FIRST, tk.SEL_LAST)
+                self.root.clipboard_clear()
+                self.root.clipboard_append(selected_text)
+                self.root.update()  # ВАЖЛИВО для Windows!
+                self.input_text.delete(tk.SEL_FIRST, tk.SEL_LAST)
                 return 'break'
         except tk.TclError:
             pass
         return None
     
     def paste_input_text(self, event=None):
-        """Вставити текст з буфера обміну"""
+        """Вставити текст у поле вводу"""
         try:
             clipboard_text = self.root.clipboard_get()
             
-            # Якщо є виділення, замінити його
             if self.input_text.tag_ranges(tk.SEL):
                 self.input_text.delete(tk.SEL_FIRST, tk.SEL_LAST)
             
-            # Вставити текст
             self.input_text.insert(tk.INSERT, clipboard_text)
             return 'break'
         except tk.TclError:
@@ -391,7 +386,6 @@ class AssistantGUI:
         if not command or command == "Введіть команду...":
             return
         
-        # Видалено прямий виклик add_message - логування через колбек
         self.input_text.delete(1.0, tk.END)
         
         if self.assistant_callback:
@@ -402,14 +396,11 @@ class AssistantGUI:
         self.awaiting_confirmation = True
         self.confirmation_callback = callback
         
-        # Оновлюємо текст питання
         self.confirmation_label.config(text=f"{ASSISTANT_TITLE}: {question}")
         
-        # Ховаємо поле вводу, показуємо підтвердження
         self.input_container.pack_forget()
         self.confirmation_frame.pack(fill='x', side='bottom', pady=(5, 0))
         
-        # Запускаємо таймер відміни (30 секунд)
         self.confirmation_timer = threading.Timer(30.0, self.on_confirmation_timeout)
         self.confirmation_timer.start()
         
@@ -423,7 +414,6 @@ class AssistantGUI:
         self.awaiting_confirmation = False
         self.confirmation_callback = None
         
-        # Ховаємо підтвердження, показуємо поле вводу
         self.confirmation_frame.pack_forget()
         self.input_container.pack(fill='x', side='bottom', pady=(5, 0))
         
@@ -459,14 +449,13 @@ class AssistantGUI:
         if self.input_active:
             idle_time = time.time() - self.last_input_time
             if idle_time > self.idle_timeout:
-                self.on_input_blur()  # Автоматично втрачаємо фокус
-                self.add_message("system", f"⏳ Автоматичне відновлення аудіо через {self.idle_timeout//60} хв бездіяльності")
+                self.on_input_blur()
+                self.add_message("system", f"⏳ Автоматичне відновлення аудіо")
         
-        # Перевіряємо кожну секунду
         self.root.after(1000, self.check_idle)
     
     def process_queue(self):
-        """Обробка черги повідомлень з іншого потоку"""
+        """Обробка черги повідомлень"""
         try:
             while True:
                 message = self.message_queue.get_nowait()
@@ -487,7 +476,6 @@ class AssistantGUI:
         except queue.Empty:
             pass
         
-        # Перевіряємо знову через 100мс
         self.root.after(100, self.process_queue)
     
     def queue_message(self, msg_type, data):
@@ -498,7 +486,6 @@ class AssistantGUI:
         """Запустити GUI"""
         self.root.mainloop()
 
-# Функція для запуску в окремому потоці
 def run_gui(assistant_callback):
     """Запуск GUI"""
     gui = AssistantGUI(assistant_callback)

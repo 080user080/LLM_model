@@ -1,26 +1,4 @@
 {
-  "відкрий блокнот": {
-    "response": "⚡ МАРК: Помилка: unindent does not match any outer indentation level (core_safety_sandbox.py, line 133)",
-    "action_info": {
-      "action": "open_program",
-      "params": {
-        "program_name": "notepad"
-      }
-    },
-    "timestamp": "2026-01-15T20:50:44.517716",
-    "hits": 1
-  },
-  "марк відкрий блокнот": {
-    "response": "⚡ МАРК: Помилка: unindent does not match any outer indentation level (core_safety_sandbox.py, line 133)",
-    "action_info": {
-      "action": "open_program",
-      "params": {
-        "program_name": "notepad"
-      }
-    },
-    "timestamp": "2026-01-15T20:51:39.350461",
-    "hits": 0
-  },
   "закрий блокнот": {
     "response": "⚡ МАРК: Програма 'notepad.exe' не в whitelist",
     "action_info": {
@@ -30,6 +8,52 @@
       }
     },
     "timestamp": "2026-01-15T21:36:29.630429",
+    "hits": 1
+  },
+  "dslrhbq ,kjryjn": {
+    "response": "Не зрозумів.",
+    "action_info": null,
+    "timestamp": "2026-01-16T20:40:43.316173",
+    "hits": 0
+  },
+  "марк": {
+    "response": "Не зрозумів.",
+    "action_info": null,
+    "timestamp": "2026-01-16T20:49:09.333285",
+    "hits": 0
+  },
+  "відкрий блокнот": {
+    "response": "⚡ МАРК: Відкрив notepad",
+    "action_info": {
+      "action": "open_program",
+      "params": {
+        "program_name": "notepad"
+      }
+    },
+    "timestamp": "2026-01-16T20:53:41.730112",
+    "hits": 0
+  },
+  "pfrhbq ,kjryjn": {
+    "response": "Не зрозумів.",
+    "action_info": null,
+    "timestamp": "2026-01-16T20:54:04.630548",
+    "hits": 0
+  },
+  "відкрий храм": {
+    "response": "⚡ МАРК: Програма 'храм' не в whitelist",
+    "action_info": null,
+    "timestamp": "2026-01-16T20:57:01.231359",
+    "hits": 0
+  },
+  "відкрий хром": {
+    "response": "⚡ МАРК: Відкрив chrome",
+    "action_info": {
+      "action": "open_program",
+      "params": {
+        "program_name": "chrome"
+      }
+    },
+    "timestamp": "2026-01-16T20:57:12.594738",
     "hits": 0
   }
 }

@@ -55,7 +55,7 @@ CONTINUOUS_MODE = {
 }
 
 # Модель розпізнавання мови (Speech-to-Text)
-STT_MODEL_TYPE = "w2v-bert"  # "whisper", "w2v-bert", або "both"
+STT_MODEL_TYPE = "both"  # "whisper", "w2v-bert", або "both"
 STT_MODEL_ID = "Yehor/w2v-bert-uk-v2.1"       # Для whisper: tiny, base, small, medium, large-v3
                             # Для w2v-bert: "Yehor/w2v-bert-uk-v2.1"
 STT_LANGUAGE = "uk"         # Мова для розпізнавання
@@ -115,4 +115,25 @@ AUDIO_FILTER_SETTINGS = {
     "compression_threshold": -20,
     "compression_ratio": 3.0,
     "compression_makeup": 4,
+}
+# ==================== AGC & RNNoise НАЛАШТУВАННЯ ====================
+# Автоматична регулювання гучності
+AGC_ENABLED = True                      # Увімкнути AGC
+AGC_TARGET_VOLUME = 0.05                # Цільова гучність (0.01-0.1)
+AGC_MAX_GAIN = 50.0                     # Макс підсилення (x50)
+AGC_ATTACK_TIME = 0.05                  # Швидкість реакції (сек)
+
+# RNNoise шумодав
+RNNOISE_ENABLED = True                  # Увімкнути RNNoise
+
+# Бустинг для різних моделей
+WHISPER_VOLUME_BOOST = 3.0              # Whisper не любить сильного бусту
+W2V_BERT_VOLUME_BOOST = 50.0            # w2v-bert потрібен сильний буст
+
+# Оновити AUDIO_FILTER_SETTINGS
+AUDIO_FILTER_SETTINGS = {
+    "use_agc": True,
+    "use_rnnoise": True,
+    "target_volume": AGC_TARGET_VOLUME,
+    "max_gain": AGC_MAX_GAIN,
 }

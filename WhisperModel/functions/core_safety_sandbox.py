@@ -15,7 +15,6 @@ class SafetySandbox:
     
     def __init__(self):
         self.config_path = Path(__file__).parent / "safety_config.json"
-        #self.audit_log_path = Path(__file__).parent / "audit_log.json"
         
         # Завантажити конфігурацію
         self.config = self._load_config()
@@ -105,27 +104,25 @@ class SafetySandbox:
         except Exception as e:
             print(f"{Fore.RED}❌ Помилка збереження config: {e}")
     
+    # ДОДАНО: Відсутній метод
+    def is_safe_program(self, program_name):
+        """Перевірити чи програма безпечна (auto-confirm)"""
+        return program_name.lower() in self.safe_programs
+    
     def _log_action(self, action_type, program_name, success, message):
         """Записати дію в audit log"""
         # Тимчасово відключено для уникнення помилки
         pass
     
-    def is_safe_program(self, program_name):
-        """Перевірити чи програма безпечна (auto-confirm)"""
-        return program_name.lower() in self.safe_programs
-    
     def _get_process_executable_name(self, process_name):
         """Отримати ім'я виконуваного файла процеса"""
-        # Якщо вже .exe, повертаємо як є
         if process_name.lower().endswith('.exe'):
             return process_name.lower()
         
-        # Перевіряємо мапінг
         process_name_lower = process_name.lower()
         if process_name_lower in self.process_name_map:
             return self.process_name_map[process_name_lower]
         
-        # Додаємо .exe
         return f"{process_name_lower}.exe"
     
     def _get_process_pids(self, process_name):
@@ -151,38 +148,31 @@ class SafetySandbox:
     def _close_window_by_process_name(self, process_name):
         """Безпечне закриття вікна через WinAPI (WM_CLOSE)"""
         try:
-            # Отримуємо PID процесу
             pids = self._get_process_pids(process_name)
             
             if not pids:
                 return False, "Процес не знайдено", 0
             
-            # Завантажуємо функції WinAPI
             EnumWindows = ctypes.windll.user32.EnumWindows
             GetWindowThreadProcessId = ctypes.windll.user32.GetWindowThreadProcessId
             SendMessage = ctypes.windll.user32.SendMessageW
             
             closed_windows = set()
             
-            # Callback функція для перебору вікон
             def enum_windows_callback(hwnd, lParam):
                 pid = ctypes.c_ulong()
                 GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
                 
                 if pid.value in pids:
-                    # WM_CLOSE = 0x0010 - нормальне закриття (збереження даних)
                     SendMessage(hwnd, 0x0010, 0, 0)
                     closed_windows.add(pid.value)
-                return True  # Продовжити перебір
+                return True
             
-            # Тип callback функції
             WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.POINTER(ctypes.c_int), ctypes.POINTER(ctypes.c_int))
-            
-            # Перебираємо всі вікна
             EnumWindows(WNDENUMPROC(enum_windows_callback), 0)
             
             if closed_windows:
-                return True, f"Відправлено команду закриття для {len(closed_windows)} вікон процесу {process_name}", len(closed_windows)
+                return True, f"Відправлено команду закриття для {len(closed_windows)} вікон", len(closed_windows)
             else:
                 return False, "Не знайдено вікон для закриття", 0
             
@@ -190,11 +180,10 @@ class SafetySandbox:
             return False, f"Помилка WinAPI: {str(e)}", 0
     
     def _force_close_program(self, process_name):
-        """Примусове закриття програми (тільки для критичних випадків)"""
+        """Примусове закриття програми"""
         try:
             exec_name = self._get_process_executable_name(process_name)
             
-            # Використовуємо taskkill для примусового закриття
             result = subprocess.run(
                 ["taskkill", "/F", "/IM", exec_name], 
                 capture_output=True, 
@@ -203,9 +192,8 @@ class SafetySandbox:
             )
             
             if result.returncode == 0:
-                return True, f"Програма {process_name} примусово закрита (втрата незбережених даних)"
+                return True, f"Програма {process_name} примусово закрита"
             else:
-                # Спробуємо через psutil якщо встановлено
                 try:
                     import psutil
                     for proc in psutil.process_iter(['pid', 'name']):
@@ -214,67 +202,57 @@ class SafetySandbox:
                             time.sleep(0.5)
                             if proc.is_running():
                                 proc.kill()
-                            return True, f"Програма {process_name} примусово закрита (терміновано)"
+                            return True, f"Програма {process_name} примусово закрита"
                     
-                    return False, f"Процес {process_name} не знайдено для закриття"
+                    return False, f"Процес {process_name} не знайдено"
                 except ImportError:
-                    return False, f"Не вдалося закрити {process_name}: {result.stderr}"
+                    return False, f"Не вдалося закрити: {result.stderr}"
                 
         except Exception as e:
-            return False, f"Помилка примусового закриття: {str(e)}"
+            return False, f"Помилка: {str(e)}"
     
     def close_safe_program(self, process_name, require_confirmation=False):
         """Закрити програму безпечно"""
         try:
             print(f"{Fore.CYAN}🔒 Спроба коректного закриття {process_name}...")
             
-            # 1. Спочатку спробуємо нормально закрити через WinAPI
             success, message, window_count = self._close_window_by_process_name(process_name)
             
             if not success:
                 return False, f"Не вдалося знайти або закрити {process_name}: {message}"
             
-            # 2. Чекаємо 3 секунди на нормальне закриття
-            print(f"{Fore.YELLOW}   ⏳ Чекаю 3 секунди на нормальне закриття...")
+            print(f"{Fore.YELLOW}   ⏳ Чекаю 3 секунди...")
             time.sleep(3)
             
-            # 3. Перевіряємо чи процес ще існує
             pids = self._get_process_pids(process_name)
             
             if not pids:
-                # Процес закрився успішно
-                self._log_action("close_program", process_name, True, "Нормальне закриття (WM_CLOSE)")
-                return True, f"Програма {process_name} успішно закрита (збережені дані)"
+                self._log_action("close_program", process_name, True, "Нормальне закриття")
+                return True, f"Програма {process_name} успішно закрита"
             
-            # 4. Процес ще запущений - обробляємо в залежності від налаштувань
-            print(f"{Fore.YELLOW}   ⚠️  {process_name} ще запущений після команди закриття")
+            print(f"{Fore.YELLOW}   ⚠️  {process_name} ще запущений")
             
             if self.is_safe_program(process_name):
-                # Для безпечних програм - закриваємо примусово
                 print(f"{Fore.YELLOW}   🔧 Безпечна програма - закриваю примусово...")
                 force_success, force_message = self._force_close_program(process_name)
                 
                 if force_success:
-                    self._log_action("close_program", process_name, True, f"Примусове закриття для безпечної програми")
-                    return True, f"Програма {process_name} закрита (безпечна програма)"
+                    self._log_action("close_program", process_name, True, f"Примусове закриття")
+                    return True, f"Програма {process_name} закрита"
                 else:
-                    self._log_action("close_program", process_name, False, f"Не вдалося примусово закрити безпечну програму")
+                    self._log_action("close_program", process_name, False, f"Не вдалося закрити")
                     return False, f"Не вдалося закрити {process_name}: {force_message}"
             
             elif require_confirmation:
-                # Потрібне підтвердження користувача
-                self._log_action("close_program", process_name, False, 
-                               f"Потребує підтвердження для примусового закриття")
-                return False, f"ПОТРІБНЕ_ПІДТВЕРДЖЕННЯ:{process_name} не відповідає на команду закриття. Скажіть 'так' щоб закрити примусово або 'ні' щоб залишити відкритим."
+                self._log_action("close_program", process_name, False, f"Потребує підтвердження")
+                return False, f"ПОТРІБНЕ_ПІДТВЕРДЖЕННЯ:{process_name} не відповідає. Скажіть 'так' щоб закрити."
             
             else:
-                # Без підтвердження - залишаємо відкритим
-                self._log_action("close_program", process_name, False, 
-                               f"Залишено відкритим - потребує підтвердження")
-                return False, f"Програма {process_name} не закрита. Скажіть 'закрий примусово {process_name}' щоб закрити."
+                self._log_action("close_program", process_name, False, f"Залишено відкритим")
+                return False, f"Програма {process_name} не закрита. Скажіть 'закрий примусово {process_name}'."
             
         except Exception as e:
-            message = f"Помилка закриття: {str(e)}"
+            message = f"Помилка: {str(e)}"
             self._log_action("close_program", process_name, False, message)
             return False, message
     
@@ -282,7 +260,6 @@ class SafetySandbox:
         """Виконати програму безпечно"""
         program_name_lower = program_name.lower()
         
-        # Перевірити чи програма в whitelist
         if program_name_lower not in self.allowed_programs:
             message = f"Програма '{program_name}' не в whitelist"
             self._log_action("open_program", program_name, False, message)
@@ -290,14 +267,10 @@ class SafetySandbox:
         
         program_path = self.allowed_programs[program_name_lower]
         
-        # Перевірити чи потрібне підтвердження
         if not self.auto_confirm_enabled or not self.is_safe_program(program_name_lower):
-            # TODO: Додати голосове підтвердження
             print(f"{Fore.YELLOW}⚠️  Підтвердження потрібне для: {program_name}")
         
-        # Знайти програму
         if not os.path.exists(program_path):
-            # Спробувати стандартні шляхи Windows
             if program_path == "notepad.exe":
                 program_path = r"C:\Windows\System32\notepad.exe"
             elif program_path == "calc.exe":
@@ -307,21 +280,19 @@ class SafetySandbox:
             elif program_path == "explorer.exe":
                 program_path = r"C:\Windows\explorer.exe"
         
-        # Перевірити чи існує
         if not os.path.exists(program_path):
             message = f"Програму не знайдено: {program_path}"
             self._log_action("open_program", program_name, False, message)
             return False, message
         
         try:
-            # Запустити програму
             subprocess.Popen([program_path])
             message = f"Відкрив {program_name}"
             self._log_action("open_program", program_name, True, message)
             return True, message
         
         except Exception as e:
-            message = f"Помилка запуску: {str(e)}"
+            message = f"Помилка: {str(e)}"
             self._log_action("open_program", program_name, False, message)
             return False, message
     

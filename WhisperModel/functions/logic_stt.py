@@ -270,8 +270,9 @@ class STTEngine:
             print(f"{Fore.RED}   ❌ Немає завантажених моделей")
             return ""
         
-        if STT_PARALLEL_ENABLED and len(self.models) > 1:
-            # Паралельний режим
+        # 🔥 ВИПРАВЛЕНО: Додана перевірка STT_MODEL_TYPE == "both"
+        if STT_PARALLEL_ENABLED and len(self.models) > 1 and STT_MODEL_TYPE == "both":
+            # Паралельний режим (тільки якщо "both")
             print(f"{Fore.CYAN}   🔄 Паралельне розпізнавання...")
             results = self._transcribe_parallel(audio)
             best_text = self._choose_best_result(results)

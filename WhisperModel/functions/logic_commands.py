@@ -116,14 +116,14 @@ class VoiceAssistant:
         try:
             from .config import ASSISTANT_DISPLAY_NAME
             
-            # ✅ ВИПРАВЛЕННЯ: для GUI команди - пропускаємо перевірку активаційного слова
+            # Для GUI команди - пропускаємо перевірку активаційного слова
             if not from_gui:
-                # 🔥 1. ПЕРЕВІРКА АКТИВАЦІЙНОГО СЛОВА (ТІЛЬКИ ДЛЯ АУДІО)
+                # 1. ПЕРЕВІРКА АКТИВАЦІЙНОГО СЛОВА (ТІЛЬКИ ДЛЯ АУДІО)
                 if not check_activation_word(command_text):
                     print(f"{Fore.LIGHTBLACK_EX}zzz Ігнорую (немає звертання): '{command_text}'")
                     return
                 
-                # 🔥 2. ВИДАЛЕННЯ АКТИВАЦІЙНОГО СЛОВА (ТІЛЬКИ ДЛЯ АУДІО)
+                # 2. ВИДАЛЕННЯ АКТИВАЦІЙНОГО СЛОВА (ТІЛЬКИ ДЛЯ АУДІО)
                 clean_command = remove_activation_word(command_text)
                 
                 if not clean_command or len(clean_command.strip()) < 3:
@@ -132,7 +132,7 @@ class VoiceAssistant:
                 
                 command_text = clean_command
             
-            # 🔥 3. Логуємо команду в GUI (для всіх типів)
+            # 3. Логуємо команду в GUI (для всіх типів)
             self.log_to_gui("user", command_text)
             
             print(f"{Fore.CYAN}🎯 {'[GUI] ' if from_gui else '[Аудіо] '}Команда: '{command_text}'")
@@ -144,7 +144,6 @@ class VoiceAssistant:
                 cached_response, action_info = self.cache_manager.get(command_text)
                 if cached_response:
                     print(f"{Fore.YELLOW}⚡ [Кеш]")
-                    # ✅ ВАЖЛИВО: Логуємо відповідь в GUI
                     self.log_to_gui("assistant", cached_response)
                     
                     if self.should_speak_response(cached_response):
@@ -161,7 +160,6 @@ class VoiceAssistant:
                         execution_result = self.cache_manager.execute_cached_action(action_info)
                         if execution_result:
                             print(f"{Fore.GREEN}✅ Дія виконана: {execution_result}")
-                            # ✅ Логуємо результат дії в GUI
                             self.log_to_gui("assistant", execution_result)
                         else:
                             print(f"{Fore.YELLOW}⚠️  Дію не виконано")
@@ -175,7 +173,6 @@ class VoiceAssistant:
                 if quick_result:
                     elapsed = time.time() - start_total
                     print(f"{Fore.YELLOW}⚡ [Швидкий маршрут]")
-                    # ✅ Логуємо відповідь в GUI
                     self.log_to_gui("assistant", quick_result)
                     
                     if self.should_speak_response(quick_result):
@@ -208,7 +205,7 @@ class VoiceAssistant:
             
             self.conversation_history.append({"role": "assistant", "content": answer})
             
-            # ✅ ВАЖЛИВО: Логуємо відповідь в GUI
+            # Логуємо відповідь в GUI
             self.log_to_gui("assistant", final_answer)
             
             # Озвучення
@@ -233,7 +230,6 @@ class VoiceAssistant:
                 
         except Exception as e:
             error_msg = f"❌ Помилка: {e}"
-            # ✅ Логуємо помилку в GUI
             self.log_to_gui("assistant", error_msg)
             print(f"{Fore.RED}{error_msg}")
             import traceback
