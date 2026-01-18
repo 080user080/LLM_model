@@ -1,25 +1,8 @@
 {
-  "закрий блокнот": {
-    "response": "⚡ МАРК: Програма 'notepad.exe' не в whitelist",
-    "action_info": {
-      "action": "close_program",
-      "params": {
-        "process_name": "notepad"
-      }
-    },
-    "timestamp": "2026-01-15T21:36:29.630429",
-    "hits": 1
-  },
-  "dslrhbq ,kjryjn": {
-    "response": "Не зрозумів.",
+  "відкри блокн": {
+    "response": "⚡ МАРК: Відкрив notepad",
     "action_info": null,
-    "timestamp": "2026-01-16T20:40:43.316173",
-    "hits": 0
-  },
-  "марк": {
-    "response": "Не зрозумів.",
-    "action_info": null,
-    "timestamp": "2026-01-16T20:49:09.333285",
+    "timestamp": "2026-01-17T22:03:51.236901",
     "hits": 0
   },
   "відкрий блокнот": {
@@ -30,30 +13,29 @@
         "program_name": "notepad"
       }
     },
-    "timestamp": "2026-01-16T20:53:41.730112",
+    "timestamp": "2026-01-18T15:48:08.679617",
     "hits": 0
   },
-  "pfrhbq ,kjryjn": {
-    "response": "Не зрозумів.",
-    "action_info": null,
-    "timestamp": "2026-01-16T20:54:04.630548",
+  "закрий блокнот": {
+    "response": "Програма notepad.exe успішно закрита",
+    "action_info": {
+      "action": "close_program",
+      "params": {
+        "process_name": "notepad"
+      }
+    },
+    "timestamp": "2026-01-18T15:48:27.857762",
     "hits": 0
   },
-  "відкрий храм": {
-    "response": "⚡ МАРК: Програма 'храм' не в whitelist",
-    "action_info": null,
-    "timestamp": "2026-01-16T20:57:01.231359",
-    "hits": 0
-  },
-  "відкрий хром": {
-    "response": "⚡ МАРК: Відкрив chrome",
+  "відкрийй браузер.": {
+    "response": "✅ Відкрито: https://google.com",
     "action_info": {
       "action": "open_program",
       "params": {
         "program_name": "chrome"
       }
     },
-    "timestamp": "2026-01-16T20:57:12.594738",
+    "timestamp": "2026-01-18T15:55:17.555293",
     "hits": 0
   }
 }

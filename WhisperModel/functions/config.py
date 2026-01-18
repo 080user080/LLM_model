@@ -55,8 +55,8 @@ CONTINUOUS_MODE = {
 }
 
 # Модель розпізнавання мови (Speech-to-Text)
-STT_MODEL_TYPE = "both"  # "whisper", "w2v-bert", або "both"
-STT_MODEL_ID = "Yehor/w2v-bert-uk-v2.1"       # Для whisper: tiny, base, small, medium, large-v3
+STT_MODEL_TYPE = "whisper"  # "whisper", "w2v-bert", або "both"
+STT_MODEL_ID = "large-v3"       # Для whisper: tiny, base, small, medium, large-v3
                             # Для w2v-bert: "Yehor/w2v-bert-uk-v2.1"
 STT_LANGUAGE = "uk"         # Мова для розпізнавання
 STT_PARALLEL_ENABLED = True  # Паралельне використання моделей для перевірки
