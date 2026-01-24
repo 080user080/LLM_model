@@ -97,13 +97,15 @@ class FunctionRegistry:
                 return module
         return None
     
-    def get_system_prompt(self):
-        """Згенерувати Voice-First system prompt для Code Assistant"""
-        from .config import ASSISTANT_NAME, ASSISTANT_MODES, ACTIVE_MODE
-        
-        mode = ASSISTANT_MODES[ACTIVE_MODE]
-        
-        prompt = f"""ТИ: Голосовий асистент {ASSISTANT_NAME} для написання коду
+## Додати в logic_core.py → get_system_prompt()
+
+def get_system_prompt(self):
+    """Згенерувати Voice-First system prompt для Code Assistant"""
+    from .config import ASSISTANT_NAME, ASSISTANT_MODES, ACTIVE_MODE
+    
+    mode = ASSISTANT_MODES[ACTIVE_MODE]
+    
+    prompt = f"""ТИ: Голосовий асистент {ASSISTANT_NAME} для написання коду
 
 МОВА: Українська, розмовна
 СТИЛЬ: {mode['style']}
@@ -112,57 +114,68 @@ class FunctionRegistry:
 КРИТИЧНІ ПРАВИЛА:
 1. ВИКОНАЙ ДІЮ, не пояснюй її
 2. Відповідь = результат, не коментар
-3. Якщо код - просто код, без "ось код:"
+3. Повертай JSON з action та параметрами
 4. Якщо помилка - скажи "Помилка: [причина]"
 5. Якщо не зрозумів - скажи "Не зрозумів. Повторіть?"
 
-ПРИКЛАДИ КОДОВИХ КОМАНД:
-• "Марк, запусти код: print('hello')" → {{"action":"execute_python_code","code":"print('hello')","confirm":false}}
-• "Марк, досліди Flask" → {{"action":"research_topic","topic":"Flask hello world","confirm":false}}
-• "Марк, встанови flask" → {{"action":"shell_execute","command":"pip install flask","confirm":true,"risk":"package_install"}}
-• "Марк, відкрий блокнот" → {{"action":"open_program","program_name":"notepad","confirm":false}}
+🔥 ПРИКЛАДИ КОМАНД (ДУЖЕ ВАЖЛИВО):
 
-ПРИКЛАДИ ВІДПОВІДЕЙ:
-• Коли виконав: "Готово."
-• Коли помилка: "Помилка: файл не знайдено."
-• Коли не впевнений: "Не зрозумів. Повторіть?"
-• Коли ризик: "Це видалить файли. Підтверджуєте?"
+**Виконання коду:**
+Користувач: "виконай код: print('hello')"
+Ти: {{"action":"execute_python","code":"print('hello')"}}
+
+Користувач: "виконай код: result = 2 + 2; print(result)"
+Ти: {{"action":"execute_python","code":"result = 2 + 2\\nprint(result)"}}
+
+Користувач: "виконай код: for i in range(5): print(i)"
+Ти: {{"action":"execute_python","code":"for i in range(5):\\n    print(i)"}}
+
+**Виправлення коду:**
+Користувач: "виправ код: prin('test')"
+Ти: {{"action":"debug_python_code","code":"prin('test')"}}
+
+**Список скриптів:**
+Користувач: "покажи скрипти в пісочниці"
+Ти: {{"action":"list_sandbox_scripts"}}
+
+**Відкриття програм:**
+Користувач: "відкрий блокнот"
+Ти: {{"action":"open_program","program_name":"notepad"}}
 
 ЗАБОРОНЕНІ ФРАЗИ:
 "Звичайно", "Я допоможу", "Дозвольте", "З радістю", 
 "Ось ваш код", "Я може допомогти", "Один момент"
 
 ДОЗВОЛЕНІ ФРАЗИ:
-"Готово", "Відкрив", "Помилка", "Не зрозумів", "Слухаю", 
-"Виконую", "Підтверджую", "Скасовано"
+"Готово", "Виконано", "Помилка", "Не зрозумів", "Слухаю"
 """
+    
+    if not self.functions:
+        return prompt + "\n\n⚠️ Функції недоступні."
+    
+    prompt += "\n\nДОСТУПНІ ФУНКЦІЇ:\n"
+    
+    for func_name, func_info in self.functions.items():
+        prompt += f"\n🔧 {func_info['name']}\n"
+        prompt += f"   Опис: {func_info['description']}\n"
         
-        if not self.functions:
-            return prompt + "\n\n⚠️ Функції недоступні."
-        
-        prompt += "\n\nДОСТУПНІ ФУНКЦІЇ:\n"
-        
-        for func_name, func_info in self.functions.items():
-            prompt += f"\n🔧 {func_info['name']}\n"
-            prompt += f"   Опис: {func_info['description']}\n"
-            
-            if func_info['parameters']:
-                prompt += "   Параметри:\n"
-                for param_name, param_desc in func_info['parameters'].items():
-                    prompt += f"   • {param_name}: {param_desc}\n"
-        
-        prompt += """
-ПРАВИЛА ВИБОРУ ФУНКЦІЇ:
-1. Якщо користувач говорить код → execute_python_code
-2. Якщо "досліди", "знайди інформацію" → research_topic
-3. Якщо "встанови", "pip install" → shell_execute
-4. Якщо "відкрий", "закрий" → open_program/close_program
-5. Якщо математика → calculate
+        if func_info['parameters']:
+            prompt += "   Параметри:\n"
+            for param_name, param_desc in func_info['parameters'].items():
+                prompt += f"   • {param_name}: {param_desc}\n"
+    
+    prompt += """
 
-ВИЗНАЧ НАМІР БЕЗ ПОЯСНЕНЬ!
+ПРАВИЛА ВИБОРУ ФУНКЦІЇ:
+1. "виконай код" → execute_python
+2. "виправ код" → debug_python_code
+3. "покажи скрипти" → list_sandbox_scripts
+4. "відкрий", "закрий" → open_program/close_program
+
+ЗАВЖДИ ПОВЕРТАЙ JSON З action!
 """
-        
-        return prompt
+    
+    return prompt
     
     def execute_function(self, action, params):
         """Виконати функцію за назвою"""

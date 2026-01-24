@@ -1,1 +1,32 @@
-{}
+{
+  "\"марк, виконай код: print('hello from sandbox!')\"": {
+    "response": "✅ Виконано (0.06с):\nHello from sandbox!",
+    "action_info": null,
+    "timestamp": "2026-01-21T21:18:33.228863",
+    "hits": 0
+  },
+  "\"марк, виконай код: result = 2 + 2; print(f'result: {result}')\"": {
+    "response": "{\"action\":\"execute_python\",\"code\":\"result = 2 + 2\\nprint(f'RESULT: {result}')\"}",
+    "action_info": null,
+    "timestamp": "2026-01-21T21:19:01.753339",
+    "hits": 0
+  },
+  "\"марк, виконай код: for i in range(5): print(f'number {i}')\"": {
+    "response": "{\"action\":\"execute_python\",\"code\":\"for i in range(5):\\n    print(f'Number {i}')\"}",
+    "action_info": null,
+    "timestamp": "2026-01-21T21:19:55.550502",
+    "hits": 0
+  },
+  "\"марк, виконай код: import os; os.system('dir')\"": {
+    "response": "❌ ⛔ Код не пройшов перевірку безпеки: Заборонено використання: os.system",
+    "action_info": null,
+    "timestamp": "2026-01-21T21:20:36.503154",
+    "hits": 0
+  },
+  "\"марк, покажи скрипти в пісочниці\"": {
+    "response": "❌ Невідомий формат команди: {}",
+    "action_info": null,
+    "timestamp": "2026-01-21T21:20:57.330514",
+    "hits": 0
+  }
+}

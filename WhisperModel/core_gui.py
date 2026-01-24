@@ -36,7 +36,7 @@ class AssistantGUI:
         self.last_input_time = time.time()
         
         # Налаштування вікна
-        self.root.geometry("600x700")
+        self.root.geometry("500x400")
         self.root.configure(bg='#f0f0f0')
         self.root.resizable(True, True)
         self.root.attributes('-alpha', 0.95)  # Напівпрозорість
@@ -128,7 +128,7 @@ class AssistantGUI:
         )
         self.chat_history.pack(fill='both', expand=True)
         
-        # Включаємо стандартне копіювання Ctrl+C
+        # Включаємо стандартне копіювання Ctrl+C - ВИПРАВЛЕНО
         self.chat_history.bind('<Control-c>', self.copy_chat_selection)
         self.chat_history.bind('<Control-C>', self.copy_chat_selection)
         
@@ -209,7 +209,7 @@ class AssistantGUI:
         self.input_text.bind('<FocusOut>', self.on_input_blur)
         self.input_text.bind('<Key>', self.on_input_key)
         
-        # Копіювання/вставка для поля вводу
+        # Копіювання/вставка для поля вводу - ВИПРАВЛЕНО
         self.input_text.bind('<Control-c>', self.copy_input_text)
         self.input_text.bind('<Control-C>', self.copy_input_text)
         self.input_text.bind('<Control-v>', self.paste_input_text)
@@ -325,57 +325,132 @@ class AssistantGUI:
         return 'break'
     
     def copy_chat_selection(self, event=None):
-        """Копіювати виділений текст з історії чату"""
+        """Копіювати виділений текст з історії чату - ВИПРАВЛЕНО"""
         try:
-            selected_text = self.chat_history.selection_get()
+            # Отримуємо виділений текст
+            selected_text = self.chat_history.get(tk.SEL_FIRST, tk.SEL_LAST)
+            
             if selected_text:
+                # Очищаємо буфер обміну
                 self.root.clipboard_clear()
+                
+                # Додаємо текст до буфера
                 self.root.clipboard_append(selected_text)
-                self.root.update()  # ВАЖЛИВО для Windows!
-                print(f"📋 Скопійовано: {len(selected_text)} символів")
+                
+                # Додатково використовуємо низькорівневий метод для Windows
+                try:
+                    self.root.tk.call('clipboard', 'append', selected_text)
+                except:
+                    pass
+                
+                # Оновлюємо буфер обміну
+                self.root.update()
+                
+                # Статус для налагодження
+                print(f"📋 Скопійовано з чату: {len(selected_text)} символів")
                 return 'break'
-        except tk.TclError:
+        except (tk.TclError, AttributeError):
+            # Якщо нічого не виділено або інша помилка
             pass
         return None
     
     def copy_input_text(self, event=None):
-        """Копіювати текст з поля вводу"""
+        """Копіювати текст з поля вводу - ВИПРАВЛЕНО"""
         try:
+            # Перевіряємо, чи є виділений текст
             if self.input_text.tag_ranges(tk.SEL):
+                # Отримуємо виділений текст
                 selected_text = self.input_text.get(tk.SEL_FIRST, tk.SEL_LAST)
-                self.root.clipboard_clear()
-                self.root.clipboard_append(selected_text)
-                self.root.update()  # ВАЖЛИВО для Windows!
-                return 'break'
-        except tk.TclError:
+                
+                if selected_text:
+                    # Очищаємо буфер обміну
+                    self.root.clipboard_clear()
+                    
+                    # Додаємо текст до буфера
+                    self.root.clipboard_append(selected_text)
+                    
+                    # Додатково використовуємо низькорівневий метод для Windows
+                    try:
+                        self.root.tk.call('clipboard', 'append', selected_text)
+                    except:
+                        pass
+                    
+                    # Оновлюємо буфер обміну
+                    self.root.update()
+                    
+                    print(f"📋 Скопійовано з вводу: {len(selected_text)} символів")
+                    return 'break'
+        except (tk.TclError, AttributeError):
+            # Якщо нічого не виділено або інша помилка
             pass
         return None
     
     def cut_input_text(self, event=None):
-        """Вирізати текст з поля вводу"""
+        """Вирізати текст з поля вводу - ВИПРАВЛЕНО"""
         try:
+            # Перевіряємо, чи є виділений текст
             if self.input_text.tag_ranges(tk.SEL):
+                # Отримуємо виділений текст
                 selected_text = self.input_text.get(tk.SEL_FIRST, tk.SEL_LAST)
-                self.root.clipboard_clear()
-                self.root.clipboard_append(selected_text)
-                self.root.update()  # ВАЖЛИВО для Windows!
-                self.input_text.delete(tk.SEL_FIRST, tk.SEL_LAST)
-                return 'break'
-        except tk.TclError:
+                
+                if selected_text:
+                    # Очищаємо буфер обміну
+                    self.root.clipboard_clear()
+                    
+                    # Додаємо текст до буфера
+                    self.root.clipboard_append(selected_text)
+                    
+                    # Додатково використовуємо низькорівневий метод для Windows
+                    try:
+                        self.root.tk.call('clipboard', 'append', selected_text)
+                    except:
+                        pass
+                    
+                    # Оновлюємо буфер обміну
+                    self.root.update()
+                    
+                    # Видаляємо виділений текст з поля вводу
+                    self.input_text.delete(tk.SEL_FIRST, tk.SEL_LAST)
+                    
+                    print(f"✂️ Вирізано з вводу: {len(selected_text)} символів")
+                    return 'break'
+        except (tk.TclError, AttributeError):
+            # Якщо нічого не виділено або інша помилка
             pass
         return None
     
     def paste_input_text(self, event=None):
-        """Вставити текст у поле вводу"""
+        """Вставити текст у поле вводу - ВИПРАВЛЕНО"""
         try:
-            clipboard_text = self.root.clipboard_get()
+            # Отримуємо текст з буфера обміну
+            clipboard_text = ""
             
-            if self.input_text.tag_ranges(tk.SEL):
-                self.input_text.delete(tk.SEL_FIRST, tk.SEL_LAST)
+            # Спробуємо отримати через Tkinter
+            try:
+                clipboard_text = self.root.clipboard_get()
+            except tk.TclError:
+                pass
             
-            self.input_text.insert(tk.INSERT, clipboard_text)
-            return 'break'
-        except tk.TclError:
+            # Якщо не вийшло, спробуємо низькорівневим методом
+            if not clipboard_text:
+                try:
+                    clipboard_text = self.root.tk.call('clipboard', 'get')
+                except tk.TclError:
+                    pass
+            
+            if clipboard_text:
+                # Перевіряємо, чи є виділений текст
+                if self.input_text.tag_ranges(tk.SEL):
+                    # Видаляємо виділений текст
+                    self.input_text.delete(tk.SEL_FIRST, tk.SEL_LAST)
+                
+                # Вставляємо текст на позицію курсора
+                self.input_text.insert(tk.INSERT, clipboard_text)
+                
+                print(f"📎 Вставлено в ввід: {len(clipboard_text)} символів")
+                return 'break'
+        except (tk.TclError, AttributeError) as e:
+            print(f"Помилка вставки: {e}")
             pass
         return None
     

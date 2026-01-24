@@ -49,10 +49,9 @@ def ask_llm(user_message, conversation_history, system_prompt):
         messages.extend(conversation_history)
         messages.append({"role": "user", "content": user_message})
         
-        # 🔥 ВИПРАВЛЕННЯ: Додано поле "model", яке вимагає API
         response = requests.post(LM_STUDIO_URL, 
             json={
-                "model": "local-model",  # Це поле обов'язкове для сумісності з OpenAI API
+                "model": "local-model",
                 "messages": messages,
                 "temperature": 0.1,
                 "max_tokens": 1024,
@@ -64,7 +63,6 @@ def ask_llm(user_message, conversation_history, system_prompt):
         if response.status_code == 200:
             return response.json()['choices'][0]['message']['content']
         else:
-            # 🔥 ВИПРАВЛЕННЯ: Виводимо текст помилки від сервера
             error_msg = f"Помилка API {response.status_code}: {response.text}"
             print(f"{Fore.RED}{error_msg}")
             return f"Помилка: {response.status_code}"
@@ -83,22 +81,44 @@ def process_llm_response(response_text, registry):
         response_json = json.loads(json_text)
         
         # Якщо це відповідь
-        if "response" in response_json:
+        if "response" in response_json and "action" not in response_json:
             return response_json["response"]
         
-        # Якщо це команда з явним action
+        # 🔥 ВИПРАВЛЕННЯ: Додано execute_python
         if "action" in response_json:
             action = response_json.pop("action")
             
-            # Логування перед виконанням
-            print(f"{Fore.MAGENTA}⚡ [Виконую]: {action} з параметрами {response_json}")
+            # Мапінг action → function_name
+            action_map = {
+                "execute_python": "execute_python",
+                "execute_python_code": "execute_python",
+                "run_python": "execute_python",
+                "debug_python_code": "debug_python_code",
+                "list_sandbox_scripts": "list_sandbox_scripts",
+                "execute_python_file": "execute_python_file",
+                "open_program": "open_program",
+                "close_program": "close_program",
+            }
             
-            result = registry.execute_function(action, response_json)
+            # Перетворити action
+            function_name = action_map.get(action, action)
+            
+            # Логування
+            print(f"{Fore.MAGENTA}⚡ [Виконую]: {function_name} з параметрами {response_json}")
+            
+            # Виконати
+            result = registry.execute_function(function_name, response_json)
             return result
         
-        # Якщо немає action, але є program_name, то це, ймовірно, відкриття програми
+        # Якщо немає action, але є code (прямий код)
+        if "code" in response_json and "action" not in response_json:
+            print(f"{Fore.MAGENTA}⚡ [Виконую execute_python з прямим code]")
+            result = registry.execute_function("execute_python", response_json)
+            return result
+        
+        # Якщо є program_name, то це відкриття програми
         if "program_name" in response_json:
-            print(f"{Fore.MAGENTA}⚡ [Виконую open_program, оскільки знайдено program_name]")
+            print(f"{Fore.MAGENTA}⚡ [Виконую open_program]")
             result = registry.execute_function("open_program", response_json)
             return result
         
@@ -109,7 +129,7 @@ def process_llm_response(response_text, registry):
         print(f"{Fore.YELLOW}⚠️ [JSON помилка]: {e}")
         print(f"{Fore.YELLOW}⚠️ [Оригінал]: {response_text}")
         
-        # Якщо не вдалося розпарсити, спробуємо витягти JSON з токенів вручну
+        # Якщо не вдалося розпарсити, спробуємо витягти JSON з токенів
         if "to=functions.open_program" in response_text:
             json_match = re.search(r'<\|message\|>(\{.*?\})', response_text)
             if json_match:
