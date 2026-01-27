@@ -97,15 +97,13 @@ class FunctionRegistry:
                 return module
         return None
     
-## Додати в logic_core.py → get_system_prompt()
-
-def get_system_prompt(self):
-    """Згенерувати Voice-First system prompt для Code Assistant"""
-    from .config import ASSISTANT_NAME, ASSISTANT_MODES, ACTIVE_MODE
-    
-    mode = ASSISTANT_MODES[ACTIVE_MODE]
-    
-    prompt = f"""ТИ: Голосовий асистент {ASSISTANT_NAME} для написання коду
+    def get_system_prompt(self):
+        """Згенерувати Voice-First system prompt для Code Assistant"""
+        from .config import ASSISTANT_NAME, ASSISTANT_MODES, ACTIVE_MODE
+        
+        mode = ASSISTANT_MODES[ACTIVE_MODE]
+        
+        prompt = f"""ТИ: Голосовий асистент {ASSISTANT_NAME} для написання коду
 
 МОВА: Українська, розмовна
 СТИЛЬ: {mode['style']}
@@ -149,22 +147,22 @@ def get_system_prompt(self):
 ДОЗВОЛЕНІ ФРАЗИ:
 "Готово", "Виконано", "Помилка", "Не зрозумів", "Слухаю"
 """
-    
-    if not self.functions:
-        return prompt + "\n\n⚠️ Функції недоступні."
-    
-    prompt += "\n\nДОСТУПНІ ФУНКЦІЇ:\n"
-    
-    for func_name, func_info in self.functions.items():
-        prompt += f"\n🔧 {func_info['name']}\n"
-        prompt += f"   Опис: {func_info['description']}\n"
         
-        if func_info['parameters']:
-            prompt += "   Параметри:\n"
-            for param_name, param_desc in func_info['parameters'].items():
-                prompt += f"   • {param_name}: {param_desc}\n"
-    
-    prompt += """
+        if not self.functions:
+            return prompt + "\n\n⚠️ Функції недоступні."
+        
+        prompt += "\n\nДОСТУПНІ ФУНКЦІЇ:\n"
+        
+        for func_name, func_info in self.functions.items():
+            prompt += f"\n🔧 {func_info['name']}\n"
+            prompt += f"   Опис: {func_info['description']}\n"
+            
+            if func_info['parameters']:
+                prompt += "   Параметри:\n"
+                for param_name, param_desc in func_info['parameters'].items():
+                    prompt += f"   • {param_name}: {param_desc}\n"
+        
+        prompt += """
 
 ПРАВИЛА ВИБОРУ ФУНКЦІЇ:
 1. "виконай код" → execute_python
@@ -174,8 +172,8 @@ def get_system_prompt(self):
 
 ЗАВЖДИ ПОВЕРТАЙ JSON З action!
 """
-    
-    return prompt
+        
+        return prompt
     
     def execute_function(self, action, params):
         """Виконати функцію за назвою"""
