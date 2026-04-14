@@ -1,4 +1,4 @@
-﻿# core_gui.py
+# core_gui.py
 """Графічний інтерфейс голосового асистента"""
 import tkinter as tk
 from tkinter import scrolledtext, ttk
@@ -543,12 +543,7 @@ class AssistantGUI:
                 elif msg_type == 'show_confirmation':
                     question, callback = data
                     self.root.after(0, self.show_confirmation, question, callback)
-                elif msg_type == 'stream_start':
-                    self.root.after(0, self.start_stream_message)
-                elif msg_type == 'stream_chunk':
-                    self.root.after(0, self.append_stream_chunk, data)
-                elif msg_type == 'stream_end':
-                    self.root.after(0, self.end_stream_message)
+                
                 elif msg_type == 'update_status':
                     status = data
                     self.root.after(0, self.status_var.set, status)
@@ -558,33 +553,6 @@ class AssistantGUI:
         
         self.root.after(100, self.process_queue)
     
-    def start_stream_message(self):
-        """Почати нове повідомлення асистента для стрімінгу."""
-        self.chat_history.configure(state='normal')
-        current_text = self.chat_history.get(1.0, tk.END).strip()
-        if current_text:
-            self.chat_history.insert(tk.END, "\n" + "-"*50 + "\n")
-        prefix = f"{ASSISTANT_TITLE}: "
-        self.chat_history.insert(tk.END, prefix, ('bold',))
-        self.stream_insert_pos = self.chat_history.index(tk.INSERT)
-        self.chat_history.configure(state='disabled')
-
-    def append_stream_chunk(self, text):
-        """Додати фрагмент тексту до стрімінгового повідомлення."""
-        self.chat_history.configure(state='normal')
-        self.chat_history.mark_set(tk.INSERT, self.stream_insert_pos)
-        self.chat_history.insert(tk.INSERT, text)
-        self.stream_insert_pos = self.chat_history.index(tk.INSERT)
-        self.chat_history.see(tk.END)
-        self.chat_history.configure(state='disabled')
-
-    def end_stream_message(self):
-        """Завершити стрімінг (додати новий рядок)."""
-        self.chat_history.configure(state='normal')
-        self.chat_history.insert(self.stream_insert_pos, "\n")
-        self.chat_history.see(tk.END)
-        self.chat_history.configure(state='disabled')
-
     def queue_message(self, msg_type, data):
         """Додати повідомлення до черги"""
         self.message_queue.put((msg_type, data))

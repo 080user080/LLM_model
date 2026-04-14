@@ -1,13 +1,12 @@
-﻿# functions/logic_commands.py
+# functions/logic_commands.py
 """Обробка команд та VoiceAssistant"""
-import threading
 import time
 import threading
 from colorama import Fore, Back, Style
 from .config import LM_STUDIO_URL, TTS_ENABLED, TTS_SPEAK_PREFIXES
 from .logic_audio import correct_whisper_text, check_activation_word, remove_activation_word
+
 class VoiceAssistant:
-    # ... (ініціалізація)
     def __init__(self, stt_engine, registry, system_prompt, listener=None, gui_log_callback=None):
         self.stt_engine = stt_engine
         self.registry = registry
@@ -34,7 +33,7 @@ class VoiceAssistant:
         if dispatcher_module:
             self.dispatcher = dispatcher_module.Dispatcher(registry)
             print(f"{Fore.MAGENTA}⚡ Диспетчер активовано")
-        # ... решта __init__
+        
         cache_module = registry.get_core_module('cache')
         if cache_module:
             self.cache_manager = cache_module.CacheManager(registry)
@@ -43,8 +42,8 @@ class VoiceAssistant:
         streaming_module = registry.get_core_module('streaming')
         if streaming_module:
             self.streaming_handler = streaming_module.StreamingHandler(LM_STUDIO_URL)
-            self.streaming_handler_enabled = True
             print(f"{Fore.MAGENTA}⚡ Стрімінг активовано")
+        
         print(f"{Fore.CYAN}🔊 TTS статус: {'УВІМКНЕНО' if self.tts_enabled else 'ВИМКНЕНО'}")
     
     def log_to_gui(self, sender, message):
@@ -193,64 +192,21 @@ class VoiceAssistant:
             
             # LLM маршрут
             from .logic_llm import ask_llm, process_llm_response
-            from .core_streaming import StreamingHandler
             
             self.conversation_history.append({"role": "user", "content": command_text})
             
-            # Підготовка повідомлень для LLM
-            messages = [{"role": "system", "content": self.system_prompt}]
-            messages.extend(self.conversation_history)
-            messages.append({"role": "user", "content": command_text})
+            print(f"{Fore.MAGENTA}🤔 [Думаю...]")
+            start_llm = time.time()
             
-            # Використовуємо стрімінг, якщо доступний
-            full_response = ""
-            if self.streaming_handler:
-                try:
-                    print(f"{Fore.MAGENTA}🤔 [Думаю (стрімінг)...]")
-                    start_llm = time.time()
-                    
-                    # Функція для обробки чанків
-                    def on_chunk(chunk_text: str):
-                        nonlocal full_response
-                        full_response += chunk_text
-                        if self.gui_log_callback:
-                            self.gui_log_callback("assistant_stream_chunk", chunk_text)
-                            
-                    # Сигнал початку стрімінгу в GUI
-                    if self.gui_log_callback:
-                        self.gui_log_callback("assistant_stream_start", None)
-                        
-                    self.streaming_handler.stream_response_with_callback(messages, on_chunk)
-                    
-                    # Сигнал завершення стрімінгу
-                    if self.gui_log_callback:
-                        self.gui_log_callback("assistant_stream_end", None)
-                        
-                    llm_time = time.time() - start_llm
-                except Exception as e:
-                    print(f"{Fore.YELLOW}⚠️ Стрімінг не вдався: {e}, використовую звичайний запит")
-                    # Fallback на звичайний запит
-                    answer = ask_llm(command_text, self.conversation_history, self.system_prompt)
-                    full_response = answer
-                    self.log_to_gui("assistant", answer)
-            else:
-                # Звичайний запит без стрімінгу
-                print(f"{Fore.MAGENTA}🤔 [Думаю...]")
-                start_llm = time.time()
-                answer = ask_llm(command_text, self.conversation_history, self.system_prompt)
-                full_response = answer
-                llm_time = time.time() - start_llm
-                self.log_to_gui("assistant", answer)
-                
-            # Обробка відповіді та виконання функцій
-            final_answer = process_llm_response(full_response, self.registry)
+            answer = ask_llm(command_text, self.conversation_history, self.system_prompt)
+            llm_time = time.time() - start_llm
             
-            # Якщо результат відрізняється (виконана дія), логуємо його окремо
-            if final_answer != full_response:
-                self.log_to_gui("assistant", final_answer)
-                
-            # Додаємо відповідь до історії
-            self.conversation_history.append({"role": "assistant", "content": full_response})
+            final_answer = process_llm_response(answer, self.registry)
+            
+            self.conversation_history.append({"role": "assistant", "content": answer})
+            
+            # Логуємо відповідь в GUI
+            self.log_to_gui("assistant", final_answer)
             
             # Озвучення
             if self.should_speak_response(final_answer):

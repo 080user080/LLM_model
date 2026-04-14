@@ -1,0 +1,34 @@
+--- main.py	2026-04-14 18:10:00
++++ main.py	2026-04-14 18:30:00
+@@ -376,17 +376,20 @@
+         
+         system_prompt = self.registry.get_system_prompt()
+         
+-        # Створити listener
+-        print(f"\n{Fore.CYAN}🎧 Створення безперервного слухача...")
+-        self.listener = create_continuous_listener(
+-            SAMPLE_RATE, 
+-            self.audio_filter, 
+-            MICROPHONE_DEVICE_ID,
+-            CONTINUOUS_MODE
+-        )
+-        
+-        if not self.listener:
+-            print(f"{Fore.RED}❌ Не вдалося створити слухача")
++        # Створити listener лише якщо увімкнено безперервне прослуховування
++        if CONTINUOUS_LISTENING_ENABLED:
++            print(f"\n{Fore.CYAN}🎧 Створення безперервного слухача...")
++            self.listener = create_continuous_listener(
++                SAMPLE_RATE, 
++                self.audio_filter, 
++                MICROPHONE_DEVICE_ID,
++                CONTINUOUS_MODE
++            )
++            if not self.listener:
++                print(f"{Fore.RED}❌ Не вдалося створити слухача")
++                return False
++        else:
++            self.listener = None
+             return False
+         
+         # Створити асистента

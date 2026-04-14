@@ -1,8 +1,8 @@
-# functions/config.py
+﻿# functions/config.py
 """Глобальні налаштування"""
 
 # ⚡ Асистент
-ASSISTANT_NAME = "марк"
+ASSISTANT_NAME = "Марк"
 ASSISTANT_EMOJI = "⚡"
 ASSISTANT_DISPLAY_NAME = f"{ASSISTANT_EMOJI} {ASSISTANT_NAME}"
 
@@ -54,6 +54,7 @@ CONTINUOUS_MODE = {
     "command_cooldown": 1.0,
 }
 
+CONTINUOUS_LISTENING_ENABLED = False  # Увімкнути безперервне прослуховування (експериментально)
 # Модель розпізнавання мови (Speech-to-Text)
 STT_MODEL_TYPE = "whisper"  # "whisper", "w2v-bert", або "both"
 STT_MODEL_ID = "large-v3"       # Для whisper: tiny, base, small, medium, large-v3
@@ -80,7 +81,7 @@ TTS_VOICES_DIR = "voices"              # 🔥 ВАЖЛИВО: папка з .pt 
 TTS_DEFAULT_VOICE = "default"          # Назва голосу (без .pt)
 TTS_SPEECH_RATE = 0.88                  # Швидкість (0.7-1.3)
 TTS_VOLUME = 1.0                       # Гучність (0.0-1.0)
-TTS_SPEAK_PREFIXES = ["⚡ МАРК:", "МАРК:"]  # Префікси для озвучення
+TTS_SPEAK_PREFIXES = ["⚡ Марк:", "Марк:"]  # Префікси для озвучення
 TTS_MODEL_DIR = "voices"
 
 

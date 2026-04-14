@@ -1,5 +1,28 @@
 {
-  "відкрий блокнот": {
+  "привіт": {
+    "response": "\u001b[31m❌ Функція none не знайдена",
+    "action_info": null,
+    "timestamp": "2026-04-14T12:32:53.365327",
+    "hits": 0
+  },
+  "від крихром.": {
+    "response": "\u001b[31m❌ Функція none не знайдена",
+    "action_info": null,
+    "timestamp": "2026-04-14T12:34:07.067108",
+    "hits": 0
+  },
+  "відкрийй хром.": {
+    "response": "⚡ МАРК: Відкрив chrome",
+    "action_info": {
+      "action": "open_program",
+      "params": {
+        "program_name": "chrome"
+      }
+    },
+    "timestamp": "2026-04-14T12:34:19.862650",
+    "hits": 0
+  },
+  "відкрийй блокнот.": {
     "response": "⚡ МАРК: Відкрив notepad",
     "action_info": {
       "action": "open_program",
@@ -7,8 +30,25 @@
         "program_name": "notepad"
       }
     },
-    "timestamp": "2026-01-27T19:55:14.338702",
+    "timestamp": "2026-04-14T12:36:50.302135",
     "hits": 0
+  },
+  "закриє блокнот.": {
+    "response": "Програма notepad.exe успішно закрита",
+    "action_info": null,
+    "timestamp": "2026-04-14T12:37:17.693577",
+    "hits": 0
+  },
+  "відкрий блокнот": {
+    "response": "✅ Відкрив notepad",
+    "action_info": {
+      "action": "open_program",
+      "params": {
+        "program_name": "notepad"
+      }
+    },
+    "timestamp": "2026-04-14T15:52:35.024722",
+    "hits": 2
   },
   "закрий блокнот": {
     "response": "Програма notepad.exe успішно закрита",
@@ -18,7 +58,13 @@
         "process_name": "notepad"
       }
     },
-    "timestamp": "2026-01-27T19:55:31.810250",
+    "timestamp": "2026-04-14T16:50:31.957680",
+    "hits": 1
+  },
+  "як в тебе справи?": {
+    "response": "Не зрозумів. Повторіть?",
+    "action_info": null,
+    "timestamp": "2026-04-14T16:52:20.121964",
     "hits": 0
   }
 }

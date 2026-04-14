@@ -1,4 +1,4 @@
-﻿# main.py
+# main.py
 """Головний файл запуску з GUI інтеграцією"""
 import os
 import sys
@@ -55,8 +55,7 @@ from functions.logic_tts import TTSEngine
 from functions.config import (
     SAMPLE_RATE, LISTEN_DURATION, VOLUME_THRESHOLD,
     ACTIVATION_WORD, ACTIVATION_LISTEN_DURATION, COMMAND_LISTEN_DURATION, 
-    MICROPHONE_DEVICE_ID, CONTINUOUS_MODE, 
-    CONTINUOUS_LISTENING_ENABLED,
+    MICROPHONE_DEVICE_ID, CONTINUOUS_MODE,
     ASSISTANT_NAME, ASSISTANT_EMOJI, ASSISTANT_DISPLAY_NAME,
     TTS_ENABLED, TTS_DEVICE, TTS_CACHE_DIR, TTS_VOICES_DIR,
     TTS_DEFAULT_VOICE, TTS_SPEECH_RATE, TTS_VOLUME, TTS_SPEAK_PREFIXES
@@ -128,17 +127,6 @@ class AssistantCore:
     def log_to_gui(self, sender, message):
         """Відправити повідомлення в GUI"""
         if self.gui_queue:
-            # Нові типи для стрімінгу
-            if sender == "assistant_stream_start":
-                self.gui_queue.put(('stream_start', None))
-                return
-            elif sender == "assistant_stream_chunk":
-                self.gui_queue.put(('stream_chunk', message))
-                return
-            elif sender == "assistant_stream_end":
-                self.gui_queue.put(('stream_end', None))
-                return
-
             # Видаляємо префікси для assistant
             if sender == "assistant":
                 from functions.config import TTS_SPEAK_PREFIXES
@@ -395,20 +383,17 @@ class AssistantCore:
         
         system_prompt = self.registry.get_system_prompt()
         
-        # Створити listener лише якщо увімкнено безперервне прослуховування
-        if CONTINUOUS_LISTENING_ENABLED:
-            print(f"\n{Fore.CYAN}🎧 Створення безперервного слухача...")
-            self.listener = create_continuous_listener(
-                SAMPLE_RATE, 
-                self.audio_filter, 
-                MICROPHONE_DEVICE_ID,
-                CONTINUOUS_MODE
-            )
-            if not self.listener:
-                print(f"{Fore.RED}❌ Не вдалося створити слухача")
-                return False
-        else:
-            self.listener = None
+        # Створити listener
+        print(f"\n{Fore.CYAN}🎧 Створення безперервного слухача...")
+        self.listener = create_continuous_listener(
+            SAMPLE_RATE, 
+            self.audio_filter, 
+            MICROPHONE_DEVICE_ID,
+            CONTINUOUS_MODE
+        )
+        
+        if not self.listener:
+            print(f"{Fore.RED}❌ Не вдалося створити слухача")
             return False
         
         # Створити асистента
@@ -440,28 +425,16 @@ class AssistantCore:
         if not self.initialize():
             return
         
-        if CONTINUOUS_LISTENING_ENABLED:
-            print(f"\n{Back.CYAN}{Fore.BLACK} 🎧 РЕЖИМ БЕЗПЕРЕРВНОГО ПРОСЛУХОВУВАННЯ {Style.RESET_ALL}")
-            print(f"{Fore.YELLOW}💡 Говоріть природньо, асистент завжди слухає")
-        else:
-            print(f"\n{Back.CYAN}{Fore.BLACK} 📝 ТЕКСТОВИЙ РЕЖИМ {Style.RESET_ALL}")
-            print(f"{Fore.YELLOW}💡 Вводьте команди в GUI. Голосовий ввід доступний через функцію 'voice_input'.")
+        print(f"\n{Back.CYAN}{Fore.BLACK} 🎧 РЕЖИМ БЕЗПЕРЕРВНОГО ПРОСЛУХОВУВАННЯ {Style.RESET_ALL}")
+        print(f"{Fore.YELLOW}💡 Говоріть природньо, асистент завжди слухає")
         
         if self.tts_engine and self.tts_engine.is_ready:
             print(f"{Fore.CYAN}💬 TTS активовано: відповіді озвучуватимуться")
-            if CONTINUOUS_LISTENING_ENABLED:
-                print(f"{Fore.CYAN}   Запис буде автоматично призупинятися під час озвучення")
+            print(f"{Fore.CYAN}   Запис буде автоматично призупинятися під час озвучення")
         
-        print(f"{Fore.LIGHTBLACK_EX}💡 Ctrl+C для виходу")
-        print()
+        print(f"{Fore.LIGHTBLACK_EX}💡 Ctrl+C для виходу\n")
         
-        if CONTINUOUS_LISTENING_ENABLED:
-            self._run_continuous_mode()
-        else:
-            self._run_text_mode()
-    
-    def _run_continuous_mode(self):
-        """Запустити безперервне прослуховування"""
+        # Функція транскрипції
         def transcribe_wrapper(audio):
             return self.transcribe_audio(audio, self.stt_engine, self.audio_filter)
         
@@ -474,16 +447,6 @@ class AssistantCore:
             while self.is_running and self.listener.is_listening:
                 time.sleep(0.1)
                 
-        except KeyboardInterrupt:
-            print(f"\n\n{Fore.YELLOW}👋 Вимикаюся...")
-            self.stop()
-    
-    def _run_text_mode(self):
-        """Працювати в текстовому режимі (очікування команд через GUI)"""
-        self.is_running = True
-        try:
-            while self.is_running:
-                time.sleep(0.5)
         except KeyboardInterrupt:
             print(f"\n\n{Fore.YELLOW}👋 Вимикаюся...")
             self.stop()
