@@ -48,7 +48,7 @@
       }
     },
     "timestamp": "2026-04-14T15:52:35.024722",
-    "hits": 2
+    "hits": 3
   },
   "закрий блокнот": {
     "response": "Програма notepad.exe успішно закрита",
@@ -65,6 +65,12 @@
     "response": "Не зрозумів. Повторіть?",
     "action_info": null,
     "timestamp": "2026-04-14T16:52:20.121964",
+    "hits": 0
+  },
+  "dslrhbq ,kjryjn": {
+    "response": "\u001b[31m❌ Функція error не знайдена",
+    "action_info": null,
+    "timestamp": "2026-04-14T18:41:26.240699",
     "hits": 0
   }
 }

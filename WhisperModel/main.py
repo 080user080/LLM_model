@@ -434,11 +434,83 @@ class AssistantCore:
         print(f"{Fore.GREEN}✅ Асистент готовий")
         
         return True
+
+    def initialize_without_listener(self):
+        """Ініціалізація асистента БЕЗ безперервного прослуховування (текстовий режим)"""
+        from colorama import Back, Style
+        from functions.logic_core import FunctionRegistry
+        from functions.logic_commands import VoiceAssistant
+        from functions.logic_audio_filtering import get_audio_filter
+        from functions.logic_tts import TTSEngine
+        from functions.config import (
+            SAMPLE_RATE, TTS_ENABLED, ASSISTANT_NAME, ASSISTANT_EMOJI
+        )
+
+        print(f"\n{Back.BLUE} {ASSISTANT_EMOJI} {ASSISTANT_NAME} - Текстовий режим {Style.RESET_ALL}\n")
+
+        # Реєстр функцій
+        print(f"{Fore.CYAN}🔧 Завантаження функцій...")
+        self.registry = FunctionRegistry()
+
+        # STT (потрібен для voice_input навички)
+        print(f"\n{Fore.CYAN}🔊 Завантаження STT...")
+        try:
+            self.stt_engine = self.load_stt_model()
+        except Exception as e:
+            print(f"{Fore.YELLOW}⚠️  STT не завантажено: {e}")
+            self.stt_engine = None
+
+        # Аудіо фільтр
+        self.audio_filter = get_audio_filter(SAMPLE_RATE)
+
+        # TTS
+        self.tts_engine = None
+        if TTS_ENABLED:
+            print(f"\n{Fore.CYAN}🔊 Ініціалізація TTS...")
+            try:
+                self.tts_engine = TTSEngine()
+                if not self.tts_engine.is_ready:
+                    self.tts_engine = None
+            except Exception as e:
+                print(f"{Fore.YELLOW}⚠️  TTS недоступний: {e}")
+                self.tts_engine = None
+
+        # LM Studio
+        print(f"\n{Fore.CYAN}🔌 Підключення до LM Studio...")
+        if not self.check_lm_studio():
+            return False
+
+        # Listener = None (текстовий режим)
+        self.listener = None
+
+        # VoiceAssistant
+        system_prompt = self.registry.get_system_prompt()
+
+        def custom_log(sender, message):
+            self.log_to_gui(sender, message)
+
+        self.assistant = VoiceAssistant(
+            self.stt_engine,
+            self.registry,
+            system_prompt,
+            listener=None,
+            gui_log_callback=custom_log
+        )
+
+        if self.tts_engine:
+            self.assistant.set_tts_engine(self.tts_engine)
+
+        print(f"\n{Fore.GREEN}✅ Асистент готовий (текстовий режим)")
+        return True
     
     def run(self):
         """Запустити асистента"""
-        if not self.initialize():
-            return
+        if CONTINUOUS_LISTENING_ENABLED:
+            if not self.initialize():
+                return
+        else:
+            if not self.initialize_without_listener():
+                return
         
         if CONTINUOUS_LISTENING_ENABLED:
             print(f"\n{Back.CYAN}{Fore.BLACK} 🎧 РЕЖИМ БЕЗПЕРЕРВНОГО ПРОСЛУХОВУВАННЯ {Style.RESET_ALL}")
