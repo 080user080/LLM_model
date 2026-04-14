@@ -1,10 +1,24 @@
---- functions/aaa_execute_python.py	2026-04-17 12:00:00
-+++ functions/aaa_execute_python.py	2026-04-17 12:15:00
-@@ -97,6 +97,7 @@
-                 stdout=subprocess.PIPE,
-                 stderr=subprocess.PIPE,
-                 text=True,
-                 encoding='utf-8',
-+                errors='replace',
-                 cwd=str(SANDBOX_DIR)
-             )
+--- functions/core_planner.py	2026-04-17 15:00:00
++++ functions/core_planner.py	2026-04-17 15:15:00
+@@ -68,12 +68,13 @@
+             action = step.get("action")
+             args = step.get("args", {}).copy()
+ 
+-            # Підставляємо збережений шлях файлу
+-            if "file_path" in args and str(args["file_path"]).strip() in ("{{previous_file_path}}", "{previous_file_path}"):
+-                if context["last_file_path"]:
+-                    args["file_path"] = context["last_file_path"]
+-                    print(f"{Fore.CYAN}🔗 Підставлено шлях: {args['file_path']}{Fore.RESET}")
+-                else:
+-                    print(f"{Fore.YELLOW}⚠️ Немає попереднього файлу для відкриття{Fore.RESET}")
++            # Підставляємо збережений шлях файлу для будь-якого аргументу, що містить маркер
++            for key, value in args.items():
++                if isinstance(value, str) and value.strip() in ("{{previous_file_path}}", "{previous_file_path}"):
++                    if context["last_file_path"]:
++                        args[key] = context["last_file_path"]
++                        print(f"{Fore.CYAN}🔗 Підставлено шлях у '{key}': {args[key]}{Fore.RESET}")
++                    else:
++                        print(f"{Fore.YELLOW}⚠️ Немає попереднього файлу для підстановки у '{key}'{Fore.RESET}")
+ 
+             # Якщо це execute_python і ми маємо попередній .py файл, додаємо script_name
+             if action == "execute_python" and context.get("last_file_path"):

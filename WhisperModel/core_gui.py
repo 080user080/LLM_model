@@ -263,30 +263,6 @@ class AssistantGUI:
         self.progress_bar.pack(fill='x', side='bottom', pady=(2, 0))
         self.progress_bar.pack_forget()  # приховати спочатку
         
-        # Статус бар
-        self.status_var = tk.StringVar()
-        self.status_var.set("✅ Готовий до роботи")
-        
-        status_bar = ttk.Label(
-            main_container,
-            textvariable=self.status_var,
-            relief=tk.SUNKEN,
-            anchor=tk.W,
-            font=('Segoe UI', 9),
-            padding=5
-        )
-        status_bar.pack(fill='x', side='bottom', pady=(5, 0))
-        
-        # Прогрес-бар (прихований за замовчуванням)
-        self.progress_var = tk.IntVar()
-        self.progress_bar = ttk.Progressbar(
-            main_container,
-            variable=self.progress_var,
-            maximum=100,
-            mode='determinate'
-        )
-        self.progress_bar.pack(fill='x', side='bottom', pady=(2, 0))
-        self.progress_bar.pack_forget()  # приховати спочатку
     
     def setup_window(self):
         """Налаштування поведінки вікна"""

@@ -22,5 +22,28 @@
     "action_info": null,
     "timestamp": "2026-04-14T21:41:37.482966",
     "hits": 0
+  },
+  "привіт": {
+    "response": "\u001b[31m❌ Функція none не знайдена",
+    "action_info": null,
+    "timestamp": "2026-04-14T22:46:39.480388",
+    "hits": 0
+  },
+  "відкрий блокнот": {
+    "response": "✅ Відкрив notepad",
+    "action_info": {
+      "action": "open_program",
+      "params": {
+        "program_name": "notepad"
+      }
+    },
+    "timestamp": "2026-04-14T22:47:02.112929",
+    "hits": 0
+  },
+  "створи план удосконалення свого коду": {
+    "response": "\u001b[31m❌ Функція none не знайдена",
+    "action_info": null,
+    "timestamp": "2026-04-14T22:47:39.831661",
+    "hits": 0
   }
 }
