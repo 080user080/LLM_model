@@ -1,4 +1,4 @@
-﻿# functions/config.py
+# functions/config.py
 """Глобальні налаштування"""
 
 # ⚡ Асистент
@@ -56,7 +56,7 @@ CONTINUOUS_MODE = {
 
 CONTINUOUS_LISTENING_ENABLED = False  # Увімкнути безперервне прослуховування (експериментально)
 # Модель розпізнавання мови (Speech-to-Text)
-STT_MODEL_TYPE = "whisper"  # "whisper", "w2v-bert", або "both"
+STT_MODEL_TYPE = "both"  # "whisper", "w2v-bert", або "both"
 STT_MODEL_ID = "large-v3"       # Для whisper: tiny, base, small, medium, large-v3
                             # Для w2v-bert: "Yehor/w2v-bert-uk-v2.1"
 STT_LANGUAGE = "uk"         # Мова для розпізнавання

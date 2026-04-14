@@ -1,4 +1,4 @@
-import os
+﻿import os
 from datetime import datetime
 
 DESKTOP_PATH = os.path.join(os.path.expanduser("~"), "Desktop")
@@ -24,7 +24,7 @@ def llm_function(name, description, parameters):
 def create_file(filename, content):
     """Створити txt файл на робочому столі"""
     try:
-        if not filename.endswith('.txt'):
+        if '.' not in filename:  # додаємо .txt тільки якщо немає жодного розширення
             filename += '.txt'
         
         filepath = os.path.join(DESKTOP_PATH, filename)

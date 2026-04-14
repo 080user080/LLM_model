@@ -68,7 +68,7 @@ class AssistantGUI:
             padding=10
         )
         
-        # Стиль для кнопок
+        # Стиль для кнопок подтверждения
         self.style.configure(
             'Confirm.TButton',
             background='#4CAF50',
@@ -87,7 +87,15 @@ class AssistantGUI:
         
         self.style.configure(
             'Send.TButton',
-            background='#2196F3',
+            background='#000000',
+            foreground='white',
+            font=('Segoe UI', 12, 'bold'),
+            padding=(15, 10)
+        )
+        
+        self.style.configure(
+            'Stop.TButton',
+            background='#000000',
             foreground='white',
             font=('Segoe UI', 12, 'bold'),
             padding=(15, 10)
@@ -198,6 +206,15 @@ class AssistantGUI:
         )
         self.send_button.grid(row=0, column=1, sticky='ns')
         
+        # Кнопка «Стоп» (изначально скрыта)
+        self.stop_button = ttk.Button(
+            input_frame,
+            text="⬛ СТОП",
+            command=self.stop_execution,
+            style='Stop.TButton'
+        )
+        # Будет показана при выполнении задачи
+        
         # Підказка
         self.input_text.insert(1.0, "Введіть команду...")
         self.input_text.configure(fg='#999999')
@@ -208,12 +225,16 @@ class AssistantGUI:
         self.input_text.bind('<FocusIn>', self.on_input_focus)
         self.input_text.bind('<FocusOut>', self.on_input_blur)
         self.input_text.bind('<Key>', self.on_input_key)
+        # Привязка для остановки (Esc)
+        self.root.bind('<Escape>', lambda e: self.stop_execution())
+        self.root.bind('<Control-c>', lambda e: self.stop_execution())
         
         # Копіювання/вставка для поля вводу - ВИПРАВЛЕНО
         self.input_text.bind('<Control-c>', self.copy_input_text)
         self.input_text.bind('<Control-C>', self.copy_input_text)
         self.input_text.bind('<Control-v>', self.paste_input_text)
         self.input_text.bind('<Control-V>', self.paste_input_text)
+        self.input_text.bind('<<Paste>>', self.paste_input_text)
         self.input_text.bind('<Control-x>', self.cut_input_text)
         self.input_text.bind('<Control-X>', self.cut_input_text)
         
@@ -230,6 +251,42 @@ class AssistantGUI:
             padding=5
         )
         status_bar.pack(fill='x', side='bottom', pady=(5, 0))
+        
+        # Прогрес-бар (прихований за замовчуванням)
+        self.progress_var = tk.IntVar()
+        self.progress_bar = ttk.Progressbar(
+            main_container,
+            variable=self.progress_var,
+            maximum=100,
+            mode='determinate'
+        )
+        self.progress_bar.pack(fill='x', side='bottom', pady=(2, 0))
+        self.progress_bar.pack_forget()  # приховати спочатку
+        
+        # Статус бар
+        self.status_var = tk.StringVar()
+        self.status_var.set("✅ Готовий до роботи")
+        
+        status_bar = ttk.Label(
+            main_container,
+            textvariable=self.status_var,
+            relief=tk.SUNKEN,
+            anchor=tk.W,
+            font=('Segoe UI', 9),
+            padding=5
+        )
+        status_bar.pack(fill='x', side='bottom', pady=(5, 0))
+        
+        # Прогрес-бар (прихований за замовчуванням)
+        self.progress_var = tk.IntVar()
+        self.progress_bar = ttk.Progressbar(
+            main_container,
+            variable=self.progress_var,
+            maximum=100,
+            mode='determinate'
+        )
+        self.progress_bar.pack(fill='x', side='bottom', pady=(2, 0))
+        self.progress_bar.pack_forget()  # приховати спочатку
     
     def setup_window(self):
         """Налаштування поведінки вікна"""
@@ -246,6 +303,13 @@ class AssistantGUI:
     
     def add_message(self, sender, message):
         """Додати повідомлення до чату"""
+        # Захист від None
+        if message is None:
+            message = ""
+        # Захист від випадкової передачі кортежу
+        if isinstance(message, (tuple, list)):
+            message = " ".join(str(item) for item in message)
+        
         self.chat_history.configure(state='normal')
         
         # Очищаємо подвійні префікси
@@ -422,30 +486,24 @@ class AssistantGUI:
     def paste_input_text(self, event=None):
         """Вставити текст у поле вводу - ВИПРАВЛЕНО"""
         try:
-            # Отримуємо текст з буфера обміну
-            clipboard_text = ""
-            
-            # Спробуємо отримати через Tkinter
+            # Отримуємо текст з буфера обміну (перша спроба)
             try:
                 clipboard_text = self.root.clipboard_get()
-            except tk.TclError:
-                pass
-            
-            # Якщо не вийшло, спробуємо низькорівневим методом
-            if not clipboard_text:
+            except:
+                clipboard_text = ""
+            # Якщо не вийшло — пробуємо через tk.call
+            if not clipboard_text.strip():
                 try:
                     clipboard_text = self.root.tk.call('clipboard', 'get')
-                except tk.TclError:
-                    pass
-            
-            if clipboard_text:
-                # Перевіряємо, чи є виділений текст
+                except:
+                    clipboard_text = ""
+            # Якщо є текст — вставляємо
+            if clipboard_text.strip():
+                # Видаляємо виділене, якщо є
                 if self.input_text.tag_ranges(tk.SEL):
-                    # Видаляємо виділений текст
                     self.input_text.delete(tk.SEL_FIRST, tk.SEL_LAST)
-                
-                # Вставляємо текст на позицію курсора
-                self.input_text.insert(tk.INSERT, clipboard_text)
+                # Вставка на позицію курсора
+                self.input_text.insert(tk.INSERT, clipboard_text.strip('\n'))
                 
                 print(f"📎 Вставлено в ввід: {len(clipboard_text)} символів")
                 return 'break'
@@ -552,6 +610,13 @@ class AssistantGUI:
                 elif msg_type == 'update_status':
                     status = data
                     self.root.after(0, self.status_var.set, status)
+                elif msg_type == 'update_progress':
+                    progress, status_text = data
+                    self.root.after(0, self.update_progress, progress, status_text)
+                elif msg_type == 'execution_started':
+                    self.root.after(0, self.show_stop_button)
+                elif msg_type == 'execution_finished':
+                    self.root.after(0, self.hide_stop_button)
                 
         except queue.Empty:
             pass
@@ -584,6 +649,37 @@ class AssistantGUI:
         self.chat_history.insert(self.stream_insert_pos, "\n")
         self.chat_history.see(tk.END)
         self.chat_history.configure(state='disabled')
+
+    def update_progress(self, progress: int, status_text: str):
+        """Оновити прогрес-бар і статус."""
+        if progress >= 100 or progress <= 0:
+            self.progress_bar.pack_forget()
+            self.progress_var.set(0)
+        else:
+            self.progress_bar.pack(fill='x', side='bottom', pady=(2, 0))
+            self.progress_var.set(progress)
+        self.status_var.set(status_text)
+        self.root.update_idletasks()
+
+    def show_stop_button(self):
+        """Показать кнопку «Стоп» и скрыть кнопку отправки."""
+        self.send_button.grid_remove()
+        self.stop_button.grid(row=0, column=1, sticky='ns')
+        self.status_var.set("⏳ Виконання... (Esc або Стоп для переривання)")
+
+    def hide_stop_button(self):
+        """Скрыть кнопку «Стоп» и показать кнопку отправки."""
+        self.stop_button.grid_remove()
+        self.send_button.grid(row=0, column=1, sticky='ns')
+        self.progress_bar.pack_forget()
+        self.status_var.set("✅ Готовий до роботи")
+
+    def stop_execution(self):
+        """Обработчик нажатия кнопки «Стоп»."""
+        if self.assistant_callback:
+            self.assistant_callback('stop_execution', None)
+        # Визуально вернём кнопку отправки
+        self.hide_stop_button()
 
     def queue_message(self, msg_type, data):
         """Додати повідомлення до черги"""

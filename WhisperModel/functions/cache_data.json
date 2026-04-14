@@ -1,76 +1,26 @@
 {
-  "привіт": {
-    "response": "\u001b[31m❌ Функція none не знайдена",
+  "які останні файли створені": {
+    "response": "📂 Скриптів в пісочниці: 2\n\n📄 calc.py (269 байт, 2026-04-14 20:55)\n📄 script_20260121_211833.py (28 байт, 2026-01-21 21:18)",
     "action_info": null,
-    "timestamp": "2026-04-14T12:32:53.365327",
+    "timestamp": "2026-04-14T20:57:12.008149",
     "hits": 0
   },
-  "від крихром.": {
-    "response": "\u001b[31m❌ Функція none не знайдена",
+  "останні створені файли": {
+    "response": "📂 Скриптів в пісочниці: 3\n\n📄 calc.py (269 байт, 2026-04-14 20:55)\n📄 script_20260121_211833.py (28 байт, 2026-01-21 21:18)\n📄 script_20260414_210317.py (71 байт, 2026-04-14 21:03)",
     "action_info": null,
-    "timestamp": "2026-04-14T12:34:07.067108",
+    "timestamp": "2026-04-14T21:04:38.941962",
     "hits": 0
   },
-  "відкрийй хром.": {
-    "response": "⚡ МАРК: Відкрив chrome",
-    "action_info": {
-      "action": "open_program",
-      "params": {
-        "program_name": "chrome"
-      }
-    },
-    "timestamp": "2026-04-14T12:34:19.862650",
-    "hits": 0
-  },
-  "відкрийй блокнот.": {
-    "response": "⚡ МАРК: Відкрив notepad",
-    "action_info": {
-      "action": "open_program",
-      "params": {
-        "program_name": "notepad"
-      }
-    },
-    "timestamp": "2026-04-14T12:36:50.302135",
-    "hits": 0
-  },
-  "закриє блокнот.": {
-    "response": "Програма notepad.exe успішно закрита",
+  "повтори попередню дію": {
+    "response": "✅ Виконано (0.08с):\nhello",
     "action_info": null,
-    "timestamp": "2026-04-14T12:37:17.693577",
+    "timestamp": "2026-04-14T21:36:14.394665",
     "hits": 0
   },
-  "відкрий блокнот": {
-    "response": "✅ Відкрив notepad",
-    "action_info": {
-      "action": "open_program",
-      "params": {
-        "program_name": "notepad"
-      }
-    },
-    "timestamp": "2026-04-14T15:52:35.024722",
-    "hits": 3
-  },
-  "закрий блокнот": {
-    "response": "Програма notepad.exe успішно закрита",
-    "action_info": {
-      "action": "close_program",
-      "params": {
-        "process_name": "notepad"
-      }
-    },
-    "timestamp": "2026-04-14T16:50:31.957680",
-    "hits": 1
-  },
-  "як в тебе справи?": {
-    "response": "Не зрозумів. Повторіть?",
-    "action_info": null,
-    "timestamp": "2026-04-14T16:52:20.121964",
-    "hits": 0
-  },
-  "dslrhbq ,kjryjn": {
+  "gjdnjhb": {
     "response": "\u001b[31m❌ Функція error не знайдена",
     "action_info": null,
-    "timestamp": "2026-04-14T18:41:26.240699",
+    "timestamp": "2026-04-14T21:41:37.482966",
     "hits": 0
   }
 }

@@ -39,9 +39,9 @@ class PythonSandbox:
         
         # Заборонені модулі/функції
         self.forbidden = [
-            'os.system', 'os.remove', 'os.rmdir', 'shutil.rmtree',
-            'subprocess.call', 'eval', 'exec', '__import__',
-            'open(', 'file(', 'input(', 'raw_input(',
+            #'os.system', 'os.remove', 'os.rmdir', 'shutil.rmtree',
+            #'subprocess.call', 'eval', 'exec', '__import__',
+            #'open(', 'file(', 'input(', 'raw_input(',
         ]
     
     def validate_code(self, code):
@@ -54,13 +54,13 @@ class PythonSandbox:
         
         # Додаткові перевірки
         dangerous_patterns = [
-            'import os',
-            'import subprocess',
-            'import shutil',
-            'from os import',
-            '__builtins__',
-            'globals()',
-            'locals()',
+            #'import os',
+            #'import subprocess',
+            #'import shutil',
+            #'from os import',
+            #'__builtins__',
+            #'globals()',
+            #'locals()',
         ]
         
         for pattern in dangerous_patterns:

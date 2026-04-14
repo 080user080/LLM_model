@@ -44,6 +44,7 @@ import requests
 # Імпорт модулів
 from functions.logic_core import FunctionRegistry
 from functions.logic_commands import VoiceAssistant
+from functions.core_planner import Planner  #GPT
 from functions.logic_audio import (
     should_ignore_command, correct_whisper_text, 
     check_volume, check_activation_word, remove_activation_word,
@@ -119,6 +120,7 @@ class AssistantCore:
         self.tts_engine = None
         self.listener = None
         self.assistant = None
+        self.planner = None  #GPT
         self.is_running = False
         
         # Черги для спілкування між потоками
@@ -272,7 +274,8 @@ class AssistantCore:
                 [LMS_PATH, "load", DESIRED_MODEL],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True
+                text=True,
+                encoding='utf-8'
             )
             
             print(f"{Fore.CYAN}⏳ Очікування завантаження (до 20с)...")
@@ -312,6 +315,14 @@ class AssistantCore:
         
         if self.assistant:
             self.assistant.process_command(text, from_gui=True)
+    
+    def stop_execution(self):
+        """Остановить текущее выполнение плана."""
+        if self.assistant and hasattr(self.assistant, 'executor'):
+            self.assistant.executor.stop()
+            if self.gui_queue:
+                self.gui_queue.put(('execution_finished', None))
+                self.gui_queue.put(('add_message', ('assistant', '⏹️ Виконання зупинено користувачем.')))
     
     def pause_listening(self):
         """Призупинити слухання"""
@@ -422,6 +433,13 @@ class AssistantCore:
             listener=self.listener,
             gui_log_callback=custom_log
         )
+
+        # --- Planner init --- #GPT
+        self.planner = Planner(self.assistant)  #GPT
+
+        # передаємо planner в асистента #GPT
+        if hasattr(self.assistant, "set_planner"):
+            self.assistant.set_planner(self.planner)  #GPT
         
         # Передати listener в TTS
         if self.tts_engine and self.listener:
@@ -496,6 +514,12 @@ class AssistantCore:
             listener=None,
             gui_log_callback=custom_log
         )
+
+        # --- Planner init --- #GPT
+        self.planner = Planner(self.assistant)  #GPT
+
+        if hasattr(self.assistant, "set_planner"):
+            self.assistant.set_planner(self.planner)  #GPT
 
         if self.tts_engine:
             self.assistant.set_tts_engine(self.tts_engine)

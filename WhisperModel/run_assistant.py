@@ -1,4 +1,4 @@
-# run_assistant.py
+﻿# run_assistant.py
 """Запуск асистента з GUI"""
 import threading
 import time
@@ -30,6 +30,11 @@ class AssistantApp:
             threading.Thread(
                 target=self.core.process_text_command,
                 args=(data,),
+                daemon=True
+            ).start()
+        elif action == 'stop_execution':
+            threading.Thread(
+                target=self.core.stop_execution,
                 daemon=True
             ).start()
 

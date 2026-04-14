@@ -21,6 +21,13 @@ class VoiceAssistant:
         # GUI логування
         self.gui_log_callback = gui_log_callback
         
+        self.planner = None  #GPT
+        from .core_memory import MemoryManager
+        self.memory = MemoryManager()  # довготривала пам'ять
+        from .core_executor import TaskExecutor
+        # Створюємо виконавець з колбеком для GUI
+        self.executor = TaskExecutor(gui_callback=self.gui_log_callback)
+        
         # TTS двигун
         self.tts_engine = None
         self.tts_enabled = TTS_ENABLED
@@ -75,6 +82,19 @@ class VoiceAssistant:
             print(f"{Fore.GREEN}✅ TTS двигун встановлено")
         else:
             print(f"{Fore.YELLOW}⚠️  TTS двигун не встановлено або вимкнено")
+
+    def ask_llm(self, prompt: str) -> str:
+        """Обгортка для виклику LLM (для Planner)."""
+        from .logic_llm import ask_llm
+        return ask_llm(prompt, self.conversation_history, self.system_prompt)
+
+    def execute_function(self, action: str, params: dict):
+        """Виконати функцію через реєстр (для Planner)."""
+        return self.registry.execute_function(action, params)
+    
+    def set_planner(self, planner):
+        """Встановити планувальник"""
+        self.planner = planner  #GPT
     
     def should_speak_response(self, response_text):
         """Перевірити, чи потрібно озвучувати відповідь"""
@@ -115,6 +135,39 @@ class VoiceAssistant:
     def process_command(self, command_text, from_gui=False):
         """Обробити команду"""
         try:
+            # --- Planner branch --- #GPT
+            if hasattr(self, "planner") and self.planner and len(command_text.split()) > 6:
+                plan = self.planner.create_plan(command_text)
+                if plan:
+                    # --- ПЕРЕВІРКА БЕЗПЕКИ ПЛАНУ ---
+                    is_safe, explanation = self.planner.validate_plan_safety(plan, command_text)
+                    if not is_safe:
+                        warning_msg = f"⚠️ План може бути небезпечним: {explanation}"
+                        self.log_to_gui("assistant", warning_msg)
+                        # Можна запитати підтвердження через GUI
+                        # (тут можна додати виклик confirm_action)
+                        print(f"{Fore.RED}{warning_msg}{Fore.RESET}")
+                        # Поки що не виконуємо
+                        return
+                    # ---------------------------------
+                    
+                    print(f"{Fore.MAGENTA}📋 План: {plan}")
+                    
+                    # Функція для виконання одного кроку (викликається з Executor)
+                    def execute_step(step):
+                        action = step.get("action")
+                        args = step.get("args", {})
+                        return self.registry.execute_function(action, args)
+                    
+                    # Колбек після завершення всього плану
+                    def on_plan_complete(results):
+                        self.memory.update_task(command_text, plan, results)
+                        self.log_to_gui("assistant", f"✅ Виконано план із {len(results)} кроків.")
+                    
+                    # Запускаємо у фоновому потоці з прогресом
+                    self.executor.execute_plan_async(plan, execute_step, on_plan_complete)
+                    return  # не повертаємо нічого, бо виконання асинхронне
+            
             from .config import ASSISTANT_DISPLAY_NAME
             
             # Для GUI команди - пропускаємо перевірку активаційного слова
